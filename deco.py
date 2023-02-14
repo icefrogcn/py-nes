@@ -26,12 +26,13 @@ def deco_print(print_info):
         return wrapper
     return deco
     
+    
 
 def err_print(e):
     if hasattr(e, 'code'):
-        print 'URLError code:',e.code
+        print 'Error code:',e.code
     if hasattr(e,"reason"):
-        print "URLError",e.reason,"Retry 1 Second."
+        print "Error",e.reason,"Retry 1 Second."
         print ERROR_times, "retry"
     return e
 

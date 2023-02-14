@@ -5,7 +5,7 @@ import time
 import datetime
 import threading
 
-from numba import jit
+#from numba import jit
 
 #自定义类
 from deco import *
@@ -183,19 +183,21 @@ class neshardware:
     
     ROM = nesROM()
     
-    CPU = cpu6502()
-
-    CPURunning = CPU.CPURunning
     
     maxCycles1 = 114
     
-    def __init__(self, debug = False):
+    def __init__(self,debug = False):
         NESLoop = 0
         CPURunning = True
         FirstRead = True
         PPU_AddressIsHi = True
         PPUAddress = 0
         SpriteAddress = 0
+        self.debug = False
+        self.cpu6502 = cpu6502()
+        self.cpu6502.debug = debug
+        
+        self.CPURunning = cpu6502.CPURunning
 
         
 
@@ -221,19 +223,19 @@ class neshardware:
         LoadNES = self.MapperChoose(self.ROM.Mapper)
         #If LoadNES = 0 Then Exit Function
 
-        self.CPU.Mapper = self.ROM.Mapper
-        self.CPU.Mirroring = self.ROM.Mirroring
-        self.CPU.Trainer = self.ROM.Trainer
-        self.CPU.FourScreen = self.ROM.FourScreen
-        self.CPU.MirrorXor = self.ROM.MirrorXor # As Long 'Integer
-        self.CPU.UsesSRAM = self.ROM.UsesSRAM #As Boolean
+        self.cpu6502.Mapper = self.ROM.Mapper
+        self.cpu6502.Mirroring = self.ROM.Mirroring
+        self.cpu6502.Trainer = self.ROM.Trainer
+        self.cpu6502.FourScreen = self.ROM.FourScreen
+        self.cpu6502.MirrorXor = self.ROM.MirrorXor # As Long 'Integer
+        self.cpu6502.UsesSRAM = self.ROM.UsesSRAM #As Boolean
     
         print "Successfully loaded %s" %self.ROM.filename
-        self.CPU.reset6502()
+        self.cpu6502.reset6502()
 
         init6502()
         while self.CPURunning:
-            self.CPU.exec6502()
+            self.cpu6502.exec6502()
 
 
             
@@ -281,10 +283,10 @@ class neshardware:
         self.regE = self.MaskBankAddress(self.regE)
         
     
-        MemCopy(self.CPU.bank8, 0, self.gameImage, self.reg8 * 0x2000, 0x2000)
-        MemCopy(self.CPU.bankA, 0, self.gameImage, self.regA * 0x2000, 0x2000)
-        MemCopy(self.CPU.bankC, 0, self.gameImage, self.regC * 0x2000, 0x2000)
-        MemCopy(self.CPU.bankE, 0, self.gameImage, self.regE * 0x2000, 0x2000)
+        MemCopy(self.cpu6502.bank8, 0, self.gameImage, self.reg8 * 0x2000, 0x2000)
+        MemCopy(self.cpu6502.bankA, 0, self.gameImage, self.regA * 0x2000, 0x2000)
+        MemCopy(self.cpu6502.bankC, 0, self.gameImage, self.regC * 0x2000, 0x2000)
+        MemCopy(self.cpu6502.bankE, 0, self.gameImage, self.regE * 0x2000, 0x2000)
         #print len(self.CPU.bankE)
 
     def MaskBankAddress(self,bank):
@@ -309,7 +311,8 @@ class neshardware:
 
 if __name__ == '__main__':
     pass
-    fc = neshardware()
+    fc = neshardware(debug)
+    #fc.debug = True
     fc.ROM.LoadNES('mario.nes')
     fc.StartingUp()
         

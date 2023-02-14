@@ -134,7 +134,9 @@ class cpu6502:
 
     ChannelWrite = [False] * 4 #As Boolean
     bgBuffer = [0] * 4096 # As Long
-
+    def __init__(self):
+        self.debug = False
+        
     def implied6502(self):
         return
 
@@ -142,20 +144,23 @@ class cpu6502:
         self.a = 0; self.X = 0; self.Y = 0; self.p = 0x22
         self.S = 0xFF
         self.PC = self.Read6502_2(0xFFFC)
-        print "6502 reset:"#,self.PC,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p)
+        print "6502 reset:",self.status()
 
-    def debug(self):
+    def status(self):
         return self.PC,self.clockticks6502,self.PPU_Status,self.CurrentLine,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
+
+    def log(self,*args):
+        #print self.debug
+        if self.debug:
+            print args
     
     def exec6502(self):
         start = time.time()
         totalFrame = 0
         starttk = time.time()
         while self.CPURunning:
-            #print self.PC,self.clockticks6502,self.PPU_Status,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
-            
+            #self.debug()
 
-                
             self.opcode = self.Read6502(self.PC)  #Fetch Next Operation
             self.PC += 1
             self.clockticks6502 += Ticks[self.opcode]
@@ -164,8 +169,6 @@ class cpu6502:
             #print time.clock() - starttk
             #print self.clockticks6502
                 
-            '''if self.CurrentLine == 240 :
-                print "debug: ",self.debug()'''
             
             if self.clockticks6502 > self.maxCycles1:
                 #print "Normal: ",self.debug() ###########################
@@ -190,7 +193,7 @@ class cpu6502:
                     if self.CurrentLine == 240 and (self.PPU_Control1 & 0x80):
                         self.nmi6502()
                 if self.CurrentLine == 262:
-                    print "FRAME: ",self.debug() ###########################
+                    self.log("FRAME:",self.status()) ###########################
                     #updateSounds
                     totalFrame += 1
                     
@@ -198,8 +201,8 @@ class cpu6502:
                     
                     self.PPU_Status = 0x0
                     
-                    if time.time() - start > 8:
-                        print totalFrame >> 3
+                    if time.time() - start > 2:
+                        print 'FPS:',totalFrame >> 1
                         start = time.time()
                         totalFrame = 0
                 self.clockticks6502 -= self.maxCycles1
