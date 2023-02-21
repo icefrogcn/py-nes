@@ -14,7 +14,7 @@ from wrfilemod import read_file_to_array
 #import mmc
 
 import rom
-from rom import rom_ok
+from rom import nesROM
 
 import cpu6502commands
 from cpu6502commands import *
@@ -24,83 +24,6 @@ from cpu6502 import *
 
 
 from vbfun import MemCopy
-
-class nesROM:
-    PrgCount = 0 # As Byte
-    PrgCount2 = 0 # As Long
-    ChrCount = 0 # As Byte,
-    ChrCount2 = 0 # As Long
-    data = []
-    filename = ''
-
-    Mapper, Mirroring, Trainer, FourScreen = 0,0,0,0
-    MirrorXor = 0 # As Long 'Integer
-    UsesSRAM = False #As Boolean
-
-    '''
-'===================================='
-'           LoadNES(filename)        '
-' Used to Load the NES ROM/VROM to   '
-' specified arrays, gameImage and    '
-' VROM, then figures out what to do  '
-' based on the mapper number.        '
-'===================================='
-'''
-    def LoadNES(self,filename):
-        self.LoadNES = 0
-        self.filename = filename
-        self.data = read_file_to_array(filename)
-        #nes_head = nesROMdata[:0x20]
-        if not rom_ok(self.data):
-            print 'Invalid Header'
-            return False
-            
-
-        ROMCtrl=0
-        ROMCtrl2 =0
-        '''Erase VRAM: Erase VROM: Erase gameImage: Erase bank8: Erase bankA
-        Erase bankC: Erase bankE: Erase bank0: Erase bank6'''
-
-        self.SpecialWrite6000 = False
-
-
-        #PrgCount = 0; PrgCount2 = 0; ChrCount = 0; ChrCount2 = 0
-    #nesROMdata
-
-
-    
-        self.PrgCount = self.data[4]; self.PrgCount2 = self.PrgCount      #'16kB ROM banks 的数量
-
-        self.ChrCount = self.data[5]; self.ChrCount2 = self.ChrCount      #'8kB VROM banks 的数量
-        print "[ " , self.PrgCount , " ] 16kB ROM Bank(s)"
-        print "[ " , self.ChrCount , " ] 8kB CHR Bank(s)"
-    
-        self.ROMCtrl = self.data[6]
-        print "[ " , ROMCtrl , " ] ROM Control Byte #1"
-
-        self.ROMCtrl2 = self.data[7]
-        print "[ " , ROMCtrl2 , " ] ROM Control Byte #2"
-    
-        '****计算Mapper类型****'
-        self.Mapper = (ROMCtrl & 0xF0) // 16
-        self.Mapper = self.Mapper + self.ROMCtrl2
-        print "[ " , self.Mapper , " ] Mapper"
-    
-        self.Trainer = ROMCtrl & 0x4
-        self.Mirroring = ROMCtrl & 0x1
-        self.FourScreen = ROMCtrl & 0x8
-    
-        self.UsesSRAM = True if self.ROMCtrl & 0x2 else False
-        print "Mirroring=" , self.Mirroring , " Trainer=" , self.Trainer , " FourScreen=" , self.FourScreen , " SRAM=" , self.UsesSRAM
-    
-        #Dim PrgMark As Long
-        self.PrgMark = (self.PrgCount2 * 0x4000) - 1
-        self.MirrorXor = 0x800 if self.Mirroring == 1 else 0x400
-        
-        if self.Trainer:
-            print "Error: Trainer not yet supported." #, VERSION
-            self.LoadNES = 0
-            return
 
 
 
@@ -221,7 +144,8 @@ class neshardware:
             self.AndIt = self.ChrCount - 1
     
         LoadNES = self.MapperChoose(self.ROM.Mapper)
-        #If LoadNES = 0 Then Exit Function
+        if LoadNES == 0 :
+            return False
 
         self.cpu6502.Mapper = self.ROM.Mapper
         self.cpu6502.Mirroring = self.ROM.Mirroring
@@ -234,10 +158,23 @@ class neshardware:
         self.cpu6502.reset6502()
 
         init6502()
+        start = time.time()
+        starttk = time.time()
+        totalFrame = 0
         while self.CPURunning:
+            
             self.cpu6502.exec6502()
+            if self.cpu6502.MapperWrite:
+                self.MapperWrite(self.cpu6502.MapperWriteData)
 
+            if time.time() - start > 2:
+                print 'FPS:',totalFrame >> 1
+                start = time.time()
+                totalFrame = 0
 
+            totalFrame += 1 if self.cpu6502.FrameFlag else 0
+
+            self.cpu6502.FrameFlag = False
             
         '''If Mirroring = 1 Then MirrorXor = &H800& Else MirrorXor = &H400&
     
@@ -255,15 +192,40 @@ class neshardware:
         MapperChoose = 1
         if MapperType == 0:
             if self.ROM.PrgCount >= 2:
-                    self.reg8 = 0;self.regA = 1;self.regC = 2;self.regE = 3
+                self.reg8 = 0;self.regA = 1;self.regC = 2;self.regE = 3
             elif self.ROM.PrgCount == 1:
-                    self.reg8 = 0;self.regA = 1;self.regC = 0;self.regE = 1
+                self.reg8 = 0;self.regA = 1;self.regC = 0;self.regE = 1
             else:
-                    self.reg8 = 0;self.regA = 0;self.regC = 0;self.regE = 0
+                self.reg8 = 0;self.regA = 0;self.regC = 0;self.regE = 0
             self.Select8KVROM(0)
             self.SetupBanks()
+
+        elif MapperType == 2:
+            self.reg8 = 0
+            self.regA = 1
+            self.regC = 0xFE
+            self.regE = 0xFF
+            self.SetupBanks()
+        else:
+            print "Unsupport Mapper",MapperType
+            MapperChoose = 0
         return MapperChoose
 
+    '===================================='
+    '       MapperWrite(Address,value)   '
+    ' Selects/Switches Chr-ROM & Prg-  '
+    ' ROM depending on the mapper. Based '
+    ' on DarcNES.                        '
+    '===================================='
+
+    def MapperWrite(self,MapperWriteData):
+        if self.ROM.Mapper == 2:
+            self.reg8 = MapperWriteData['value'] * 2
+            self.regA = self.reg8 + 1
+            self.SetupBanks()
+            self.cpu6502.MapperWrite = False
+        else:
+            print "Unsupport MapperWrite", self.ROM.Mapper
     #@deco
     def MaskVROM(self, page, mask):
         return page & (mask - 1)
@@ -313,7 +275,7 @@ if __name__ == '__main__':
     pass
     fc = neshardware(debug)
     #fc.debug = True
-    fc.ROM.LoadNES('mario.nes')
+    fc.ROM.LoadNES('1944.nes')
     fc.StartingUp()
         
 

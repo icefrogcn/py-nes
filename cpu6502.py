@@ -21,23 +21,7 @@ from vbfun import MemCopy
 
          
 
-'===================================='
-'       MapperWrite(Address,value)   '
-' Selects/Switches Chr-ROM & Prg-  '
-' ROM depending on the mapper. Based '
-' on DarcNES.                        '
-'===================================='
-def MapperWrite(Address, value):
-    if Mapper == 1:
-        pass
-        #MMC1_Write Address, value
-    elif Mapper == 2:
-        reg8 = (value * 2)
-        regA = reg8 + 1
-        #SetupBanks
-    elif Mapper == 3:
-        pass
-        #Select8KVROM (value & AndIt)
+
 
 
 
@@ -136,6 +120,10 @@ class cpu6502:
     bgBuffer = [0] * 4096 # As Long
     def __init__(self):
         self.debug = False
+        self.MapperWrite = False
+        self.MapperWriteData = {'Address':0,'value':0}
+
+        self.FrameFlag = False
         
     def implied6502(self):
         return
@@ -155,12 +143,12 @@ class cpu6502:
             print args
     
     def exec6502(self):
-        start = time.time()
-        totalFrame = 0
-        starttk = time.time()
+
         while self.CPURunning:
             #self.debug()
-
+            if self.MapperWrite or self.FrameFlag:
+                return
+            
             self.opcode = self.Read6502(self.PC)  #Fetch Next Operation
             self.PC += 1
             self.clockticks6502 += Ticks[self.opcode]
@@ -189,23 +177,38 @@ class cpu6502:
                             self.PPU_Status = self.PPU_Status | 64'''
                         
                 if self.CurrentLine >= 240:
+
+                    if self.CurrentLine == 240 :
+                        #if render :
+                            #pass
+                            #blitScreen()
+                            #realframes = realframes + 1
+                        #Frames = Frames + 1
+                       
+                            
+                        pass
+                        'ensure most recent keyboard input'
+
+            
                     self.PPU_Status = 0x80
+
+                    #JoyPadINPUT()
+                    
                     if self.CurrentLine == 240 and (self.PPU_Control1 & 0x80):
                         self.nmi6502()
                 if self.CurrentLine == 262:
                     self.log("FRAME:",self.status()) ###########################
                     #updateSounds
-                    totalFrame += 1
+                    
                     
                     self.CurrentLine = 0
                     
                     self.PPU_Status = 0x0
+                    self.FrameFlag = True
                     
-                    if time.time() - start > 2:
-                        print 'FPS:',totalFrame >> 1
-                        start = time.time()
-                        totalFrame = 0
+
                 self.clockticks6502 -= self.maxCycles1
+
 
 
 
@@ -963,8 +966,10 @@ class cpu6502:
         if Address >=0x0 and Address <=0x1FFF:
             self.bank0[Address & 0x7FF] = value
         elif Address >=0x8000 and Address <=0xFFFF:
-            print Address
-            #MapperWrite Address, value
+            #print Address
+            self.MapperWrite = True
+            self.MapperWriteData['Address'] = Address
+            self.MapperWriteData['value'] = value
         elif Address == 0x2000:
             self.PPU_Control1 = value
             #print "Write PPU crl1",value
@@ -1044,6 +1049,8 @@ class cpu6502:
                     
         else:
             pass
+
+
 
     '''def updateSounds(self):
         if doSound :

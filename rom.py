@@ -36,6 +36,85 @@ def rom_ok(data):
         return True
     else:
         return False
+
+class nesROM:
+    PrgCount = 0 # As Byte
+    PrgCount2 = 0 # As Long
+    ChrCount = 0 # As Byte,
+    ChrCount2 = 0 # As Long
+    data = []
+    filename = ''
+
+    Mapper, Mirroring, Trainer, FourScreen = 0,0,0,0
+    MirrorXor = 0 # As Long 'Integer
+    UsesSRAM = False #As Boolean
+
+    '''
+'===================================='
+'           LoadNES(filename)        '
+' Used to Load the NES ROM/VROM to   '
+' specified arrays, gameImage and    '
+' VROM, then figures out what to do  '
+' based on the mapper number.        '
+'===================================='
+'''
+    def LoadNES(self,filename):
+        self.LoadNES = 0
+        self.filename = filename
+        self.data = read_file_to_array(filename)
+        #nes_head = nesROMdata[:0x20]
+        if not rom_ok(self.data):
+            print 'Invalid Header'
+            return False
+            
+
+        ROMCtrl=0
+        ROMCtrl2 =0
+        '''Erase VRAM: Erase VROM: Erase gameImage: Erase bank8: Erase bankA
+        Erase bankC: Erase bankE: Erase bank0: Erase bank6'''
+
+        self.SpecialWrite6000 = False
+
+
+        #PrgCount = 0; PrgCount2 = 0; ChrCount = 0; ChrCount2 = 0
+    #nesROMdata
+
+
+    
+        self.PrgCount = self.data[4]; self.PrgCount2 = self.PrgCount      #'16kB ROM banks 的数量
+
+        self.ChrCount = self.data[5]; self.ChrCount2 = self.ChrCount      #'8kB VROM banks 的数量
+        print "[ " , self.PrgCount , " ] 16kB ROM Bank(s)"
+        print "[ " , self.ChrCount , " ] 8kB CHR Bank(s)"
+    
+        self.ROMCtrl = self.data[6]
+        print "[ " , ROMCtrl , " ] ROM Control Byte #1"
+
+        self.ROMCtrl2 = self.data[7]
+        print "[ " , ROMCtrl2 , " ] ROM Control Byte #2"
+    
+        '****计算Mapper类型****'
+        self.Mapper = (self.ROMCtrl & 0xF0) // 16
+        self.Mapper = self.Mapper + self.ROMCtrl2
+        print "[ " , self.Mapper , " ] Mapper"
+    
+        self.Trainer = ROMCtrl & 0x4
+        self.Mirroring = ROMCtrl & 0x1
+        self.FourScreen = ROMCtrl & 0x8
+    
+        self.UsesSRAM = True if self.ROMCtrl & 0x2 else False
+        print "Mirroring=" , self.Mirroring , " Trainer=" , self.Trainer , " FourScreen=" , self.FourScreen , " SRAM=" , self.UsesSRAM
+    
+        #Dim PrgMark As Long
+        self.PrgMark = (self.PrgCount2 * 0x4000) - 1
+        self.MirrorXor = 0x800 if self.Mirroring == 1 else 0x400
+        
+        if self.Trainer:
+            print "Error: Trainer not yet supported." #, VERSION
+            self.LoadNES = 0
+            return
+
+
 #@deco
 def get_16k_rom_num(data):
     return ord(data[0x4])
