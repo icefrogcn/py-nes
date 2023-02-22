@@ -1,5 +1,5 @@
 # -*- coding: UTF-8 -*-
-import re
+import os,re
 
 import time
 import datetime
@@ -22,6 +22,7 @@ from cpu6502commands import *
 import cpu6502
 from cpu6502 import *
 
+from apu import APU
 
 from vbfun import MemCopy
 
@@ -78,7 +79,7 @@ class neshardware:
 
 
     FrameSkip = 0 #'Integer
-    Frames = 0
+
 
         #tLook = [0]*0x80000 #颜色查询表
     CPal = ["#686868", "#804000", "#800000", "#800040", "#800080", "#400080", "#80", "#55", 
@@ -119,6 +120,8 @@ class neshardware:
         self.debug = False
         self.cpu6502 = cpu6502()
         self.cpu6502.debug = debug
+
+        #self.apu = APU()
         
         self.CPURunning = cpu6502.CPURunning
 
@@ -275,7 +278,7 @@ if __name__ == '__main__':
     pass
     fc = neshardware(debug)
     #fc.debug = True
-    fc.ROM.LoadNES('1944.nes')
+    fc.ROM.LoadNES(os.getcwd() + '\\roms\\1944.nes')
     fc.StartingUp()
         
 

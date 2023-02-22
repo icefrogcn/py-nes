@@ -20,7 +20,7 @@ from vbfun import MemCopy
          
 
          
-
+from apu import APU
 
 
 
@@ -105,9 +105,9 @@ class cpu6502:
     SpriteRAM = [0] * 0x100 #FF# As Byte      '活动块存储器，单独的一块，不占内存
 
     totalFrame = 0
+    
+    Frames = 0
 
-    Sound = [0] * 0x16 #(0 To 0x15)# As Byte
-    SoundCtrl = 0# As Byte
 
 
     tilebased = True
@@ -116,7 +116,8 @@ class cpu6502:
     Joypad1 = [0x40] * 8
     Joypad1_Count = 0
 
-    ChannelWrite = [False] * 4 #As Boolean
+    apu = APU()
+    
     bgBuffer = [0] * 4096 # As Long
     def __init__(self):
         self.debug = False
@@ -124,6 +125,8 @@ class cpu6502:
         self.MapperWriteData = {'Address':0,'value':0}
 
         self.FrameFlag = False
+
+        
         
     def implied6502(self):
         return
@@ -183,7 +186,7 @@ class cpu6502:
                             #pass
                             #blitScreen()
                             #realframes = realframes + 1
-                        #Frames = Frames + 1
+                        self.Frames = self.Frames + 1
                        
                             
                         pass
@@ -198,7 +201,7 @@ class cpu6502:
                         self.nmi6502()
                 if self.CurrentLine == 262:
                     self.log("FRAME:",self.status()) ###########################
-                    #updateSounds
+                    self.apu.updateSounds(self.Frames)
                     
                     
                     self.CurrentLine = 0
@@ -941,7 +944,7 @@ class cpu6502:
             
         elif (Address >=0x4000 and Address <=0x4013) or Address == 0x4015:
             print "Read SOUND "
-            return self.Sound[Address - 0x4000]
+            return self.apu.Sound[Address - 0x4000]
         elif Address == 0x4016:
             #print "Read JOY "
             joypad1_info = self.Joypad1[self.Joypad1_Count]
@@ -1025,15 +1028,15 @@ class cpu6502:
                 self.PPUAddress = self.PPUAddress + 1
         elif Address >= 0x4000 and Address <= 0x4013:
             #print "Sound Write"
-            self.Sound[Address - 0x4000] = value
+            self.apu.Sound[Address - 0x4000] = value
             n = (Address - 0x4000) >> 2
             if n < 4 :
-                self.ChannelWrite[n] = True
+                self.apu.ChannelWrite[n] = True
         elif Address == 0x4014:
             #print 'DF: changed gameImage to bank0. This should work'
             MemCopy(self.SpriteRAM, 0, self.bank0, (value * 0x100), 0x100)
         elif Address == 0x4015:
-            SoundCtrl = value #'Sound(Address - 0x4000&) = value'
+            self.apu.SoundCtrl = value #'Sound(Address - 0x4000&) = value'
         elif Address == 0x4016:
             Joypad1_Count = 0x0
         elif Address == 0x4017:
@@ -1050,19 +1053,6 @@ class cpu6502:
         else:
             pass
 
-
-
-    '''def updateSounds(self):
-        if doSound :
-            PlayRect 0
-            PlayRect 1
-            PlayTriangle 2
-            PlayNoise 3
-        else:
-            stopTone 0
-            stopTone 1
-            stopTone 2
-            stopTone 3'''
     
 from cpu6502instructions import *
 
