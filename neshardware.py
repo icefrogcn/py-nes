@@ -159,7 +159,7 @@ class neshardware:
     
         print "Successfully loaded %s" %self.ROM.filename
         self.cpu6502.reset6502()
-
+        self.cpu6502.apu.pAPUinit()
         init6502()
         start = time.time()
         starttk = time.time()

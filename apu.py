@@ -5,49 +5,6 @@ import rtmidi
 import math
 
 #APU
-''' Public Sub PlayRect(ch)
-    Dim f, l, v
-    If SoundCtrl And pow2(ch) Then
-        v = (Sound(ch * 4 + 0) And 15) 'Get volume
-        l = vlengths(Sound(ch * 4 + 3) \ 8) 'Get length
-        If v > 0 Then
-            f = Sound(ch * 4 + 2) + (Sound(ch * 4 + 3) And 7) * 256 'Get frequency
-            If f > 1 Then
-                If ChannelWrite(ch) Then 'Ensures that a note doesn't replay unless memory written
-                    ChannelWrite(ch) = False
-                    lastFrame(ch) = Frames + l
-                    playTone ch, getTone(f), v
-                End If
-            Else
-                stopTone ch
-            End If
-        Else
-            stopTone ch
-        End If
-    Else
-        ChannelWrite(ch) = True
-        stopTone ch
-    End If
-    If Frames >= lastFrame(ch) Then
-        stopTone ch
-    End If
-End Sub'''
-
-def MidiOpen():
-    if midiOutOpen(mdh, 0, 0, 0, 0) :
-        print "Cannot open midi"
-    else:
-        #pass
-        midiOpened = True
-
-    
-'''Public Sub MidiClose()
-    If midiOpened Then
-        midiOutClose mdh
-        midiOpened = False
-    End If
-End Sub'''
-
 
 class APU:
     tones = [0] * 4
@@ -69,9 +26,14 @@ class APU:
     
     def __init__(self,debug = False):
         pass
+
+    def pAPUinit(self):
+        'Lookup table used by nester.'
+        #fillArray vlengths, 
         self.midiout = rtmidi.MidiOut()
         self.available_ports = self.midiout.get_ports()
         print self.available_ports
+        #print self.midiout.getportcount()
         
         if self.available_ports:
             self.midiout.open_port(0)
@@ -81,6 +43,7 @@ class APU:
         #SelectInstrument 1, 80 'Square wave'
         #SelectInstrument 2, 74 'Triangle wave. Used recorder (like a flute'
         #SelectInstrument 3, 127 'Noise. Used gunshot. Poor but sometimes works.'
+
     def updateSounds(self,Frames):
         self.Frames = Frames
         #print "Playing"
@@ -116,6 +79,7 @@ class APU:
                         #print 
                         self.ChannelWrite[ch] = False
                         self.lastFrame[ch] = self.Frames + length
+                        self.midiout.send_message([0xC0,127] if v == 5 else ([0xC0,74] if v == 9 else [0xC0,80]))
                         self.playTone(ch, self.getTone(frequency), volume)
                     
                 else:
@@ -188,7 +152,7 @@ class APU:
             tone = 0 if tone < 0 else tone
             tone = 255 if tone > 255 else tone
             note_on = [0x90, tone, volume] # channel 1, middle C, velocity 112
-            print note_on
+            #print note_on
             self.midiout.send_message(note_on)
             #'midiOutShortMsg mdh, &H90 Or tone * 256 Or channel Or volume * 65536'
 
@@ -210,14 +174,7 @@ class APU:
             self.volume[channel] = 0
 
 
-def pAPUinit():
-    'Lookup table used by nester.'
-    #fillArray vlengths, 
-    
-    #SelectInstrument 0, 80 'Square wave'
-    #SelectInstrument 1, 80 'Square wave'
-    #SelectInstrument 2, 74 'Triangle wave. Used recorder (like a flute'
-    #SelectInstrument 3, 127 'Noise. Used gunshot. Poor but sometimes works.'
+
 
 '''
 MIDI instrument list. Ripped off some website I've forgotten which
@@ -380,6 +337,7 @@ if __name__ == '__main__':
 
     note_on = [0x90, 60, 112] # channel 1, middle C, velocity 112
     note_off = [0x80, 60, 0]
+    midiout.send_message([192,127])
     midiout.send_message(note_on)
     time.sleep(0.5)
     midiout.send_message(note_off)

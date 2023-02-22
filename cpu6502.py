@@ -116,7 +116,6 @@ class cpu6502:
     Joypad1 = [0x40] * 8
     Joypad1_Count = 0
 
-    apu = APU()
     
     bgBuffer = [0] * 4096 # As Long
     def __init__(self):
@@ -126,7 +125,8 @@ class cpu6502:
 
         self.FrameFlag = False
 
-        
+        self.apu = APU()
+
         
     def implied6502(self):
         return
