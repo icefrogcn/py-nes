@@ -1,6 +1,8 @@
 # -*- coding: UTF-8 -*-
 import re
 
+import random
+
 import time
 import datetime
 import threading
@@ -12,13 +14,15 @@ try:
 except:
     import tkinter
 
-from PIL import Image
-from PIL import ImageTk
+from PIL import Image,ImageDraw,ImageFont,ImageFilter
+#from PIL import ImageTk
 #import cv2
 
 
 import matplotlib.pyplot as plt#约定俗成的写法plt
 import numpy as np
+
+import pylab
 
 #自定义类
 #from neshardware import * 
@@ -62,8 +66,8 @@ class nesROM:
         self.LoadNES = 0
         self.filename = filename
         self.data = read_file_to_array(filename)
-        #nes_head = nesROMdata[:0x20]
-        if not rom_ok(self.data):
+        self.NESHEADER = self.data[:0x20]
+        if not rom_ok(self.NESHEADER):
             print 'Invalid Header'
             return False
             
@@ -81,9 +85,9 @@ class nesROM:
 
 
     
-        self.PrgCount = self.data[4]; self.PrgCount2 = self.PrgCount      #'16kB ROM banks 的数量
+        self.PrgCount = get_16k_rom_num(self.data); self.PrgCount2 = self.PrgCount      #'16kB ROM banks 的数量
 
-        self.ChrCount = self.data[5]; self.ChrCount2 = self.ChrCount      #'8kB VROM banks 的数量
+        self.ChrCount = get_8k_vrom_num(self.data); self.ChrCount2 = self.ChrCount      #'8kB VROM banks 的数量
         print "[ " , self.PrgCount , " ] 16kB ROM Bank(s)"
         print "[ " , self.ChrCount , " ] 8kB CHR Bank(s)"
     
@@ -114,13 +118,18 @@ class nesROM:
             self.LoadNES = 0
             return
 
+def calculate_Mapper(NESHEADER):
+    return  (NESHEADER[6] & 0xF0) // 16 + NESHEADER[7]
+
+def get_Mapper_by_fn(filename):
+    return calculate_Mapper(read_file_to_array(filename))
 
 #@deco
-def get_16k_rom_num(data):
-    return ord(data[0x4])
+def get_16k_rom_num(NESHEADER):
+    return NESHEADER[0x4]
 #@deco
-def get_8k_vrom_num(data):
-    return ord(data[0x5])
+def get_8k_vrom_num(NESHEADER):
+    return NESHEADER[0x5]
 
 def get_block(block_start,block_num,block_len):
     block=[]
@@ -210,7 +219,7 @@ def Tiles_arr(Tiles):
     return Tiles_arr
 
 
-
+'''
 #camera = cv2.VideoCapture(0)
 firstframe=None 
 tk = tkinter.Tk()                      # 创建窗口对象的背景色
@@ -224,7 +233,7 @@ canvas.pack()
 
 #video_loop()
 
-#cv2.namedWindow("Image")
+#cv2.namedWindow("Image")'''
 '''
 while True:  
     ret,frame = camera.read()  
@@ -251,14 +260,24 @@ while True:
     if key == ord("q"):  
         break
 '''
+def rndColor():
+    return random.randint(64,255),random.randint(64,255),random.randint(64,255)
+
 if __name__ == '__main__':
-    nesROMdata = read_file_to_array('mario.nes')
+    nesROMdata = read_file_to_array('roms//mario.nes')
     nes_head = nesROMdata[:0x20]
     print (nes_head)
     #print hex(len(nesROMdata))
     #fig,axes=plt.subplots(nrows=2,ncols=2)#定一个2*2的plot
-    plt.figure(figsize=(8,4))
-    plt.show()
+    width,height = 320,240
+    image = Image.new('RGB',(320,240),(255,255,255))
+    draw = ImageDraw.Draw(image)
+    for i in range(10):
+        for x in range(width):
+            for y in range(height):
+                draw.point((x,y),fill = rndColor())
+        plt.imshow(image)
+        plt.show(block = False)
     
     if rom_ok(nes_head):
         i16K_ROM_NUMBER = get_16k_rom_num(nes_head)

@@ -39,11 +39,21 @@ class APU:
             self.midiout.open_port(0)
         else:
             self.midiout.open_virtual_port("My virtual output")
-        #SelectInstrument 0, 80 'Square wave'
-        #SelectInstrument 1, 80 'Square wave'
-        #SelectInstrument 2, 74 'Triangle wave. Used recorder (like a flute'
-        #SelectInstrument 3, 127 'Noise. Used gunshot. Poor but sometimes works.'
 
+        self.midiout.send_message([0xC0,80]) #'Square wave'
+        self.midiout.send_message([0xC1,80]) #'Square wave'
+        self.midiout.send_message([0xC2,74]) #Triangle wave
+        self.midiout.send_message([0xC3,127]) #Noise. Used gunshot. Poor but sometimes works.'
+
+    def Write(self,Address,value):
+        if Address == 0x15:
+            self.SoundCtrl = value
+        else:
+            self.Sound[Address] = value
+            n = Address >> 2
+            if n < 4 :
+                self.ChannelWrite[n] = True
+                                  
     def updateSounds(self,Frames):
         self.Frames = Frames
         #print "Playing"
@@ -79,7 +89,6 @@ class APU:
                         #print 
                         self.ChannelWrite[ch] = False
                         self.lastFrame[ch] = self.Frames + length
-                        self.midiout.send_message([0xC0,127] if v == 5 else ([0xC0,74] if v == 9 else [0xC0,80]))
                         self.playTone(ch, self.getTone(frequency), volume)
                     
                 else:
@@ -151,7 +160,7 @@ class APU:
         if self.available_ports :
             tone = 0 if tone < 0 else tone
             tone = 255 if tone > 255 else tone
-            note_on = [0x90, tone, volume] # channel 1, middle C, velocity 112
+            note_on = [0x90 + channel, tone, volume] # channel 1, middle C, velocity 112
             #print note_on
             self.midiout.send_message(note_on)
             #'midiOutShortMsg mdh, &H90 Or tone * 256 Or channel Or volume * 65536'
@@ -160,8 +169,8 @@ class APU:
         if self.available_ports :
             tone = 0 if tone < 0 else tone
             tone = 255 if tone > 255 else tone
-            note_off = [0x80, tone, 0]
-            print note_off
+            note_off = [0x80 + channel, tone, 0]
+            #print note_off
             self.midiout.send_message(note_off)
             #midiOutShortMsg mdh, &H80 Or tone * 256 Or channel
 

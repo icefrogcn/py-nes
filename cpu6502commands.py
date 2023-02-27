@@ -1,6 +1,6 @@
 # -*- coding; UTF-8 -*-
 from numba import jit
-
+import time
 
 #CPU Memory Map
 '''
@@ -364,9 +364,29 @@ if __name__ == '__main__':
       #nes_ROM_data = read_file_to_array['mario.nes']
       #nes_head = nes_ROM_data[:0x20]
       init6502()
-      print instruction[10]
-                #break
+      #print Ticks
+      ticks_dic = {}
+      for i,item in enumerate(Ticks):
+            ticks_dic[i] = item
 
+      #print ticks_dic
+      
+      start = time.clock()
+      #cpu.aa = 200
+    
+    
+      for i in range(10000000):
+            aa = Ticks[0x00]
+      print time.clock() - start
+      #print aa
+      start = time.clock()
+      
+      for i in range(10000000):
+            aa = ticks_dic[0x00]
+            pass
+      print time.clock() - start
+        
+      #print aa
         
 
 

@@ -5,6 +5,8 @@ import time
 import datetime
 import threading
 
+import keyboard
+
 #from numba import jit
 
 #自定义类
@@ -29,7 +31,7 @@ from vbfun import MemCopy
 
 
 class neshardware:       
-    EmphVal =0
+    #EmphVal =0
 
     romName =''
 
@@ -55,17 +57,8 @@ class neshardware:
 
 
         
-    VRAM = [0]*0x4000 # Video RAM
+    
     VROM = []  
-    SpriteRAM = [0]*0xFF     #活动块存储器，单独的一块，不占内存nes_ROM_data =[]
-
-        #Sound(0 To &H15) As Byte
-        #SoundCtrl As Byte
-
-    PrgCount = 0 # As Byte
-    PrgCount2 = 0 # As Long
-    ChrCount = 0 # As Byte,
-    ChrCount2 = 0 # As Long
 
 
     reg8 = 0 # As Byte
@@ -96,10 +89,6 @@ class neshardware:
 
     bank_regs = [0]*16 #Byte
 
-    PPU_InVBlank = 0x80
-    PPU_Sprite0 = 0x40
-    PPU_SpriteCount = 0x20
-    PPU_Ignored = 0x10
 
     i16K_ROM_NUMBER = 0
     i8K_VROM_NUMBER = 0
@@ -114,22 +103,26 @@ class neshardware:
         NESLoop = 0
         CPURunning = True
         FirstRead = True
-        PPU_AddressIsHi = True
-        PPUAddress = 0
+
         SpriteAddress = 0
         self.debug = False
         self.cpu6502 = cpu6502()
         self.cpu6502.debug = debug
 
-        #self.apu = APU()
+        self.cpu6502.PPU = PPU()
+        self.cpu6502.APU = APU()
+        self.cpu6502.JOYPAD1 = JOYPAD()
+        self.cpu6502.JOYPAD2 = JOYPAD()
         
         self.CPURunning = cpu6502.CPURunning
 
         
-
+    def PowerON(self):
+        pass
 
 
     def StartingUp(self):
+        self.cpu6502.PPU.pPPUinit()
     
         '****读取图像数据****'
         self.gameImage = [0] * self.ROM.PrgMark
@@ -144,7 +137,7 @@ class neshardware:
             
             #self.VROM = self.ROM.data[self.ROM.PrgMark:(self.ROM.ChrCount2 * 0x2000)] # Byte
             MemCopy (self.VROM,0, self.ROM.data, self.ROM.PrgMark, len(self.VROM))
-            self.AndIt = self.ChrCount - 1
+            self.AndIt = self.ROM.ChrCount - 1
     
         LoadNES = self.MapperChoose(self.ROM.Mapper)
         if LoadNES == 0 :
@@ -154,24 +147,25 @@ class neshardware:
         self.cpu6502.Mirroring = self.ROM.Mirroring
         self.cpu6502.Trainer = self.ROM.Trainer
         self.cpu6502.FourScreen = self.ROM.FourScreen
-        self.cpu6502.MirrorXor = self.ROM.MirrorXor # As Long 'Integer
         self.cpu6502.UsesSRAM = self.ROM.UsesSRAM #As Boolean
     
         print "Successfully loaded %s" %self.ROM.filename
         self.cpu6502.reset6502()
-        self.cpu6502.apu.pAPUinit()
+        self.cpu6502.PPU.MirrorXor = self.ROM.MirrorXor # As Long 'Integer
+
+        self.cpu6502.APU.pAPUinit()
         init6502()
         start = time.time()
         starttk = time.time()
         totalFrame = 0
         while self.CPURunning:
-            
+
             self.cpu6502.exec6502()
             if self.cpu6502.MapperWrite:
                 self.MapperWrite(self.cpu6502.MapperWriteData)
 
-            if time.time() - start > 2:
-                print 'FPS:',totalFrame >> 1
+            if time.time() - start > 4:
+                print 'FPS:',totalFrame >> 2
                 start = time.time()
                 totalFrame = 0
 
@@ -202,7 +196,15 @@ class neshardware:
                 self.reg8 = 0;self.regA = 0;self.regC = 0;self.regE = 0
             self.Select8KVROM(0)
             self.SetupBanks()
-
+            
+        elif MapperType == 1:
+            self.Select8KVROM(0)
+            self.reg8 = 0;self.regA = 1;self.regC = 0xFE;self.regE = 0xFF
+            self.SetupBanks()
+            sequence = 0;accumulator = 0
+            #Erase data
+            #data(0) = &H1F: data(3) = 0
+        
         elif MapperType == 2:
             self.reg8 = 0
             self.regA = 1
@@ -236,7 +238,7 @@ class neshardware:
 
     def Select8KVROM(self, val1):
         val1 = self.MaskVROM(val1, self.ROM.ChrCount)
-        MemCopy(self.VRAM,0 , self.VROM, val1 * 0x2000, 0x2000)
+        MemCopy(self.cpu6502.PPU.VRAM, 0, self.VROM, val1 * 0x2000, 0x2000)
 
     #'only switches banks when needed
     #'******只有需要时才切换******
@@ -254,6 +256,7 @@ class neshardware:
         MemCopy(self.cpu6502.bankE, 0, self.gameImage, self.regE * 0x2000, 0x2000)
         #print len(self.CPU.bankE)
 
+    #@deco
     def MaskBankAddress(self,bank):
         if bank >= self.ROM.PrgCount * 2 :
             i = 0xFF

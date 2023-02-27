@@ -3,6 +3,8 @@
 import time
 from numba import jit
 
+import keyboard
+
 #CPU Memory Map
 '''
 ' M6502 CPU Implementation for basicNES 2000.
@@ -21,6 +23,8 @@ from vbfun import MemCopy
 
          
 from apu import APU
+from ppu import PPU
+from joypad import JOYPAD
 
 
 
@@ -91,18 +95,7 @@ class cpu6502:
     bankC = [0]*8192 #As Byte
     bankE = [0] * 8192 #As Byte
 
-        #6502中没有寄存器，故使用工作内存地址作为寄存器
-    PPU_Status = 0
-    PPU_Control1 = 0 # $2000
-    PPU_Control2 = 0 # $2001
-    PPU_Status = 0 # $2002
-    SpriteAddress = 0 #As Long ' $2003
-    PPUAddressHi = 0 # $2006, 1st write
-    PPUAddress = 0 # $2006
-    PPU_AddressIsHi = False
 
-    VRAM = [0] * 0x4000 #3FFF #As Byte, VROM() As Byte  ' Video RAM
-    SpriteRAM = [0] * 0x100 #FF# As Byte      '活动块存储器，单独的一块，不占内存
 
     totalFrame = 0
     
@@ -113,9 +106,6 @@ class cpu6502:
     tilebased = True
 
 
-    Joypad1 = [0x40] * 8
-    Joypad1_Count = 0
-
     
     bgBuffer = [0] * 4096 # As Long
     def __init__(self):
@@ -125,100 +115,9 @@ class cpu6502:
 
         self.FrameFlag = False
 
-        self.apu = APU()
-
-        
-    def implied6502(self):
-        return
-
-    def reset6502(self):
-        self.a = 0; self.X = 0; self.Y = 0; self.p = 0x22
-        self.S = 0xFF
-        self.PC = self.Read6502_2(0xFFFC)
-        print "6502 reset:",self.status()
-
-    def status(self):
-        return self.PC,self.clockticks6502,self.PPU_Status,self.CurrentLine,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
-
-    def log(self,*args):
-        #print self.debug
-        if self.debug:
-            print args
-    
-    def exec6502(self):
-
-        while self.CPURunning:
-            #self.debug()
-            if self.MapperWrite or self.FrameFlag:
-                return
-            
-            self.opcode = self.Read6502(self.PC)  #Fetch Next Operation
-            self.PC += 1
-            self.clockticks6502 += Ticks[self.opcode]
-            starttk = time.clock()
-            self.exec_opcode(instruction[self.opcode])
-            #print time.clock() - starttk
-            #print self.clockticks6502
-                
-            
-            if self.clockticks6502 > self.maxCycles1:
-                #print "Normal: ",self.debug() ###########################
-                
-                self.CurrentLine = self.CurrentLine + 1
-                if self.CurrentLine < 8 :
-                    self.PPU_Status = self.PPU_Status & 0x3F
-                if self.CurrentLine == 239 :
-                    self.PPU_Status = self.PPU_Status | 0x80
-                    
-                if (self.PPU_Control2 & 16) != 0 and (self.PPU_Status & 64==0) and self.CurrentLine > self.SpriteRAM[0] + 8:
-                    self.PPU_Status = self.PPU_Status | 64
-
-                '''if self.tilebased:
-                    h = 16 if (self.PPU_Control1 & 0x20)  else  8
-                    if (self.PPU_Status & 64) == 0 :
-                        if self.CurrentLine > self.SpriteRAM[0] + h :
-                            self.PPU_Status = self.PPU_Status | 64'''
-                        
-                if self.CurrentLine >= 240:
-
-                    if self.CurrentLine == 240 :
-                        #if render :
-                            #pass
-                            #blitScreen()
-                            #realframes = realframes + 1
-                        self.Frames = self.Frames + 1
-                       
-                            
-                        pass
-                        'ensure most recent keyboard input'
-
-            
-                    self.PPU_Status = 0x80
-
-                    #JoyPadINPUT()
-                    
-                    if self.CurrentLine == 240 and (self.PPU_Control1 & 0x80):
-                        self.nmi6502()
-                if self.CurrentLine == 262:
-                    self.log("FRAME:",self.status()) ###########################
-                    self.apu.updateSounds(self.Frames)
-                    
-                    
-                    self.CurrentLine = 0
-                    
-                    self.PPU_Status = 0x0
-                    self.FrameFlag = True
-                    
-
-                self.clockticks6502 -= self.maxCycles1
 
 
-
-
-        #"DF: reordered the the case's. Made address long (was variant)."
-    
-    def exec_opcode(self,instruction_opcode):
-        instruction_dic ={
+        self.instruction_dic ={
      INS_BNE: self.bne6502,
      INS_CMP: self.cmp6502,
      INS_LDA: self.lda6502,
@@ -287,16 +186,124 @@ class cpu6502:
      INS_TSX: self.tsx6502,
      INS_BRA: self.bra6502
         }
-        '''method = instruction_dic.get(instruction_opcode)
-        if method:
-            #print method
-            method()
-        else:'''
+
+
+        self.adrmode_dic ={
+            ADR_ABS: self.abs6502,
+            ADR_ABSX: self.absx6502,
+            ADR_ABSY: self.absy6502,
+            ADR_IMP: ' nothing really necessary cause implied6502 = ""',
+            ADR_IMM: self.imm6502,
+            ADR_INDABSX: self.indabsx6502,
+            ADR_IND: self.indirect6502,
+            ADR_INDX: self.indx6502,
+            ADR_INDY: self.indy6502,
+            ADR_INDZP: self.indzp6502,
+            ADR_REL: self.rel6502,
+            ADR_ZP: self.zp6502,
+            ADR_ZPX: self.zpx6502,
+            ADR_ZPY: self.zpy6502
+            }
+    def implied6502(self):
+        return
+
+    def reset6502(self):
+        self.a = 0; self.X = 0; self.Y = 0; self.p = 0x22
+        self.S = 0xFF
+        self.PC = self.Read6502_2(0xFFFC)
+        print "6502 reset:",self.status()
+
+    def status(self):
+        return self.Frames,self.PC,self.clockticks6502,self.PPU.Status,self.CurrentLine,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
+
+    def log(self,*args):
+        #print self.debug
+        if self.debug:
+            print args
+    
+    def exec6502(self):
+
+        while self.CPURunning:
+            #self.debug()
+            if self.MapperWrite or self.FrameFlag:
+                return
             
+            self.opcode = self.Read6502(self.PC)  #Fetch Next Operation
+            self.PC += 1
+            self.clockticks6502 += Ticks[self.opcode]
+            starttk = time.clock()
+            self.exec_opcode(instruction[self.opcode])
+            #print time.clock() - starttk
+            #print self.clockticks6502
+                
+            
+            if self.clockticks6502 > self.maxCycles1:
+                #self.log("Normal:",self.status()) ############################
+                
+                self.CurrentLine = self.CurrentLine + 1
+
+                self.PPU.RenderScanline(self.CurrentLine)
+
+                    
+
+
+                '''if self.tilebased:
+                    h = 16 if (self.PPU_Control1 & 0x20)  else  8
+                    if (self.PPU_Status & 64) == 0 :
+                        if self.CurrentLine > self.SpriteRAM[0] + h :
+                            self.PPU_Status = self.PPU_Status | 64'''
+                        
+                if self.CurrentLine >= 240:
+                    #self.log("CurrentLine:",self.status()) ############################
+                    if self.CurrentLine == 240 :
+                        #if render :
+                            #pass
+                            #blitScreen()
+                            #realframes = realframes + 1
+                        self.Frames = self.Frames + 1
+                       
+                            
+                        pass
+                        'ensure most recent keyboard input'
+
+            
+                    self.PPU.Status = 0x80
+
+                    if keyboard.is_pressed('enter'):
+                        print "press"
+                        self.JOYPAD1.Joypad[3] = 0x41
+                    else:
+                        self.JOYPAD1.Joypad[3] = 0x40
+                        
+                    #JoyPadINPUT()
+                    
+                    if self.CurrentLine == 240 and (self.PPU.Control1 & 0x80):
+                        self.nmi6502()
+                        
+                if self.CurrentLine == 262:
+                    self.log("FRAME:",self.status()) ###########################
+                    self.APU.updateSounds(self.Frames)
+                    
+                    
+                    self.CurrentLine = 0
+                    
+                    self.PPU.Status = 0x0
+                    self.FrameFlag = True
+                    
+
+                self.clockticks6502 -= self.maxCycles1
+
+
+
+
+        #"DF: reordered the the case's. Made address long (was variant)."
+    
+    def exec_opcode(self,instruction_opcode):
+       
         try:
-            instruction_dic.get(instruction_opcode)()
+            self.instruction_dic.get(instruction_opcode)()
         except:
-            print "Invalid opcode - %d" %instruction_opcode
+            print "Invalid opcode - %s" %hex(instruction_opcode)
 
     ' This is where all 6502 instructions are kept.'
     def adc6502(self):
@@ -337,7 +344,7 @@ class cpu6502:
 
     def adrmode_opcode(self,addrmode_opcode):
         #print ADR_ABS
-        adrmode_dic ={
+        '''adrmode_dic ={
             ADR_ABS: self.abs6502,
             ADR_ABSX: self.absx6502,
             ADR_ABSY: self.absy6502,
@@ -352,9 +359,9 @@ class cpu6502:
             ADR_ZP: self.zp6502,
             ADR_ZPX: self.zpx6502,
             ADR_ZPY: self.zpy6502
-            }
+            }'''
         try:
-            adrmode_dic.get(addrmode_opcode)()
+            self.adrmode_dic.get(addrmode_opcode)()
         except:
             print "Invalid addrmode - %d" %addrmode_opcode
 
@@ -912,52 +919,41 @@ class cpu6502:
 
     #@deco
     def Read6502(self, Address):
-        if Address >=0x0 and Address <=0x1FFF:
+        addr = Address >> 13
+
+        if addr == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
             return self.bank0[Address & 0x7FF]
-        elif Address >=0x8000 and Address <=0x9FFF:
+        elif addr == 0x04:                      #Address >=0x8000 and Address <=0x9FFF:
             return self.bank8[Address - 0x8000]
-        elif Address >=0xA000 and Address <=0xBFFF:
+        elif addr == 0x05:                      #Address >=0xA000 and Address <=0xBFFF:
             return self.bankA[Address - 0xA000]
-        elif Address >=0xC000 and Address <=0xDFFF:
+        elif addr == 0x06:                      #Address >=0xC000 and Address <=0xDFFF:
             return self.bankC[Address - 0xC000]
-        elif Address >=0xE000 and Address <=0xFFFF:
+        elif addr == 0x07:                      #Address >=0xE000 and Address <=0xFFFF:
             return self.bankE[Address - 0xE000]
-        elif Address == 0x2002:
-            #print "Read PPU "
-            ret = self.PPU_Status
-            self.PPU_AddressIsHi = True
-            self.ScrollToggle = 0
-            self.PPU_Status = self.PPU_Status & 0x3F
-            return ret #PPU_Status = 0
-        elif Address == 0x2004:
-            print "Read SpiritRAM "
-        elif Address == 0x2007:
-            #print "Read PPU MMC",hex(self.PPUAddress)
-            if self.Mapper == 9 or self.Mapper == 10:
-                print "Mapper 9 - 10"
 
-            mmc_info = self.VRAM[self.PPUAddress & 0x3F1F - 1] if self.PPUAddress >= 0x3F20 and self.PPUAddress <= 0x3FFF else self.VRAM[self.PPUAddress - 1]
+        
+        elif addr == 0x01:
+            return self.PPU.Read(Address)
 
-            self.PPUAddress = (self.PPUAddress + 32) if (self.PPU_Control1 & 0x4) else self.PPUAddress + 1
-                
-            return mmc_info
-            
         elif (Address >=0x4000 and Address <=0x4013) or Address == 0x4015:
-            print "Read SOUND "
-            return self.apu.Sound[Address - 0x4000]
+            return self.APU.Sound[Address - 0x4000]
+        
         elif Address == 0x4016:
-            #print "Read JOY "
-            joypad1_info = self.Joypad1[self.Joypad1_Count]
-            self.Joypad1_Count = (self.Joypad1_Count + 1) & 7
-            return joypad1_info
+            #print "Read JOY1"
+            #return 0x40
+            return self.JOYPAD1.Read()
+
         elif Address == 0x4017:
-            #print "Read Unknow "
-            return 0
-        elif Address == 0x6000 -0x7FFF:
+            #print "Read JOY2 "
+            #pass
+            return self.JOYPAD2.Read()
+        elif addr == 0x03: #Address == 0x6000 -0x7FFF:
             print "Read SRAM "
         else:
             print hex(Address)
             print "Read HARD bRK",self.debug() ###########################
+        return 0
 
 #'=========================================='
 #'           Write6502(Address,value)       '
@@ -965,127 +961,119 @@ class cpu6502:
 #' and Mappers.                             '
 #'=========================================='
     def Write6502(self,Address,value):
-        
-        if Address >=0x0 and Address <=0x1FFF:
+        addr = Address >> 13
+        #addr2 = Address >> 15
+        if addr == 0x00:
+            'Address >=0x0 and Address <=0x1FFF:'
             self.bank0[Address & 0x7FF] = value
-        elif Address >=0x8000 and Address <=0xFFFF:
-            #print Address
-            self.MapperWrite = True
-            self.MapperWriteData['Address'] = Address
-            self.MapperWriteData['value'] = value
-        elif Address == 0x2000:
-            self.PPU_Control1 = value
-            #print "Write PPU crl1",value
-            #print self.PC,self.clockticks6502,instruction[self.opcode],"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
-        elif Address == 0x2001:
-            self.PPU_Control2 = value
-            #print "Write PPU crl2"
-            self.EmphVal = (value & 0xE0) * 2
-        elif Address == 0x2003:
-            #print "Write SpriteAddress"
-            self.SpriteAddress = value
-        elif Address == 0x2004:
-            #print "Write SpriteRAM"
-            self.SpriteRAM[self.SpriteAddress] = value
-            self.SpriteAddress = (self.SpriteAddress + 1) #And 0xFF
-        elif Address == 0x2005:
-            #print "Write PPU_AddressIsHi"
-            if self.PPU_AddressIsHi :
-                self.HScroll = value
-                self.PPU_AddressIsHi = False
-            else:
-                self.vScroll = value
-                self.PPU_AddressIsHi = True
-        elif Address == 0x2006:
-            if self.PPU_AddressIsHi :
-                self.PPUAddressHi = value * 0x100
-                self.PPU_AddressIsHi = False
-            else:
-                self.PPUAddress = self.PPUAddressHi + value
-                self.PPU_AddressIsHi = True
-        elif Address == 0x2007:
-            #print "Write PPU_AddressIsHi"
-            #'Debug.Print "PPUAddress:$" & Hex$(PPUAddress), "Value:$" & Hex$(value)
-            self.PPUAddress = self.PPUAddress & 0x3FFF
-            '''if Mapper == 9 or Mapper == 10 :
-                if PPUAddress <= 0x1FFF :
-                    if PPUAddress > 0xFFF :
-                        pass
-                        #MMC2_latch VRAM(PPUAddress), True
-                    else:
-                        pass
-                        #MMC2_latch VRAM(PPUAddress), False'''
-            if self.PPUAddress >= 0x3F00 and self.PPUAddress <= 0x3FFF:
-                self.VRAM[self.PPUAddress & 0x3F1F] = value
-               #'VRAM((PPUAddress And 0x3F1F) Or 0x10) = value  'DF: All those ref's lied. The palettes don't mirror
-            else:
-                if (self.PPUAddress & 0x3000) == 0x2000:
-                    self.VRAM[self.PPUAddress ^ self.MirrorXor] = value
-                self.VRAM[self.PPUAddress] = value
-            if (self.PPU_Control1 & 0x4) :
-                self.PPUAddress = self.PPUAddress + 32
-            else:
-                self.PPUAddress = self.PPUAddress + 1
-        elif Address >= 0x4000 and Address <= 0x4013:
-            #print "Sound Write"
-            self.apu.Sound[Address - 0x4000] = value
-            n = (Address - 0x4000) >> 2
-            if n < 4 :
-                self.apu.ChannelWrite[n] = True
-        elif Address == 0x4014:
-            #print 'DF: changed gameImage to bank0. This should work'
-            MemCopy(self.SpriteRAM, 0, self.bank0, (value * 0x100), 0x100)
-        elif Address == 0x4015:
-            self.apu.SoundCtrl = value #'Sound(Address - 0x4000&) = value'
-        elif Address == 0x4016:
-            Joypad1_Count = 0x0
-        elif Address == 0x4017:
-            pass
+            
+        elif addr == 0x01:
+            '$2000-$3FFF'
+            #print "PPU Write" ,Address
+            self.PPU.Write(Address,value)
+        elif addr == 0x02:
+            '$4000-$5FFF'
+            if Address < 0x4100:
+                pass
+                self.WriteReg(Address,value)
+        
         elif Address >= 0x6000 and Address <= 0x7FFF:
             if SpecialWrite6000 == True :
-                pass
+                print 'SpecialWrite6000'
                 #MapperWrite Address, value
             elif UsesSRAM:
                 if Mapper != 69:
                     pass
                     #bank6(Address & 0x1FFF) = value
+        elif Address >=0x8000 and Address <=0xFFFF:
+            ''''''
+            self.MapperWrite = True
+            self.MapperWriteData['Address'] = Address
+            self.MapperWriteData['value'] = value
+
                     
         else:
             pass
+    def WriteReg(self,Address,value):
+        addr = Address & 0xFF
+        if  addr <= 0x13 or addr == 0x15:
+            self.APU.Write(addr,value)
+        elif addr == 0x14:
+            #print 'DF: changed gameImage to bank0. This should work'
+            MemCopy(self.PPU.SpriteRAM, 0, self.bank0, (value * 0x100 ), 0x100)
+        elif addr == 0x16:
+            pass
+            self.JOYPAD1.Joypad_Count = 0x0
+        elif addr == 0x17:
+            pass
+            self.JOYPAD2.Joypad_Count = 0x0
+
+
+
+        
+    def testspeed(self):
+        aa = 200
+        list1 = [200,300,300,300,300,300,300,300,300,300,300,300,300,300,300,300,300,300]
+        dic = {'aa':200,'bb':300}
+        start = time.clock()
+        for i in range(10000000):
+            bb = aa
+            #print Address
+            pass
+        print time.clock() - start
+        start = time.clock()
+        for i in range(10000000):
+            cc = dic['aa']
+            #print Address
+            pass
+        print time.clock() - start
+        start = time.clock()
+        for i in range(10000000):
+            dd = list1[0]
+            #print Address
+            pass
+        print time.clock() - start
+        start = time.clock()
+        for i in range(10000000):
+            ee = list1[10]
+            #print Address
+            pass
+        print time.clock() - start
 
     
-from cpu6502instructions import *
+#from cpu6502instructions import *
 
 
 
 if __name__ == '__main__':
     #cpu = cpu6502()
+    #cpu.testspeed()
     
     #print help(cpu)
     #print ADR_IMM
     #print cpu.adrmode_opcode(3)
     start = time.clock()
-    Address = 1345
+    Address = 15
+    #cpu.aa = 200
+    list1 = [0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0x10,0x11,0x12,0x13,0x15]
+    
     for i in range(1000000):
-        if Address >=0x0 and Address <=0x1FFF:
-            #print Address
+        if  Address<0x14 or Address == 0x15:
+        #aa = Address * 0x100
             pass
-        
-        
     print time.clock() - start
-    #print Address & 0x1FFF
-    #print bin(Address & 0x1FFF)
-    #print bin(Address)
     
     start = time.clock()
-    
+    addr = Address >> 13
     for i in range(1000000):
  
-        if  Address & 0x1FFF == Address:
+        if   Address<=0x13 or Address == 0x15:
             pass
-            #print Address
+        #aa = Address << 2
         
     print time.clock() - start
+
+    
     aa = 10
     aa <<= 1
     print bin(aa)
