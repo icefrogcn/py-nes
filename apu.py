@@ -4,9 +4,11 @@ import time
 import rtmidi
 import math
 
+from nes import NES
+
 #APU
 
-class APU:
+class APU(NES):
     tones = [0] * 4
     volume = [0] * 4
     lastFrame = [0] * 4
@@ -42,7 +44,7 @@ class APU:
 
         self.midiout.send_message([0xC0,80]) #'Square wave'
         self.midiout.send_message([0xC1,80]) #'Square wave'
-        self.midiout.send_message([0xC2,74]) #Triangle wave
+        self.midiout.send_message([0xC2,87]) #Triangle wave
         self.midiout.send_message([0xC3,127]) #Noise. Used gunshot. Poor but sometimes works.'
 
     def Write(self,Address,value):
@@ -54,8 +56,7 @@ class APU:
             if n < 4 :
                 self.ChannelWrite[n] = True
                                   
-    def updateSounds(self,Frames):
-        self.Frames = Frames
+    def updateSounds(self):
         #print "Playing"
         if self.doSound :
             self.PlayRect(0)
@@ -88,7 +89,7 @@ class APU:
                     if self.ChannelWrite[ch] : #Ensures that a note doesn't replay unless memory written
                         #print 
                         self.ChannelWrite[ch] = False
-                        self.lastFrame[ch] = self.Frames + length
+                        self.lastFrame[ch] = NES.Frames + length
                         self.playTone(ch, self.getTone(frequency), volume)
                     
                 else:

@@ -1,5 +1,6 @@
 # -*- coding: UTF-8 -*-
 import os
+import cProfile
 
 #import neshardware
 from neshardware import neshardware
@@ -13,7 +14,10 @@ def roms_list():
 
 def show_choose():
     for i,item in enumerate(roms_list()):
-        print i,get_Mapper_by_fn(ROMS_DIR + item),item
+        mapper = get_Mapper_by_fn(ROMS_DIR + item)
+        #if mapper in [0,2]:
+            
+        print i,item,get_Mapper_by_fn(ROMS_DIR + item)
     print "---------------"
     print 'choose a number as a selection.'
     
@@ -24,7 +28,7 @@ if __name__ == '__main__':
     
     fc = neshardware()
     #fc.debug = True
-    fc.ROM.LoadNES(ROMS_DIR + roms_list()[gn])
+    fc.LoadROM(ROMS_DIR + roms_list()[gn])
     fc.StartingUp()
     
 

@@ -18,31 +18,26 @@ from wrfilemod import read_file_to_array
 import rom
 from rom import nesROM
 
-import cpu6502commands
+#import cpu6502commands
 from cpu6502commands import *
 
 import cpu6502
 from cpu6502 import *
 
+from ppu import PPU
 from apu import APU
 
 from vbfun import MemCopy
 
+from nes import NES
 
 
-class neshardware:       
+class neshardware(NES):       
     #EmphVal =0
 
     romName =''
 
-    'DF: array to draw each frame to'
-    vBuffer = [0]* (256 * 241 - 1) 
-    '256*241 to allow for some overflow     可以允许一些溢出'
 
-    vBuffer16 = [0]*(256 * 240 - 1) #As Integer
-    vBuffer32 = [0]*(256 * 240 - 1) #As Long
-
-    tLook = [0]*(65536 * 8 - 1) #As Byte
 
 
     'DF: powers of 2'
@@ -114,15 +109,20 @@ class neshardware:
         self.cpu6502.JOYPAD1 = JOYPAD()
         self.cpu6502.JOYPAD2 = JOYPAD()
         
-        self.CPURunning = cpu6502.CPURunning
+        #self.CPURunning = cpu6502.CPURunning
 
+    def LoadROM(self,filename):
+        self.ROM.LoadROM(filename)
         
+            
     def PowerON(self):
-        pass
+        NES.CPURunning = True
 
 
     def StartingUp(self):
+        init6502()
         self.cpu6502.PPU.pPPUinit()
+        self.cpu6502.APU.pAPUinit()
     
         '****读取图像数据****'
         self.gameImage = [0] * self.ROM.PrgMark
@@ -139,33 +139,35 @@ class neshardware:
             MemCopy (self.VROM,0, self.ROM.data, self.ROM.PrgMark, len(self.VROM))
             self.AndIt = self.ROM.ChrCount - 1
     
-        LoadNES = self.MapperChoose(self.ROM.Mapper)
+        LoadNES = self.MapperChoose(NES.Mapper)
         if LoadNES == 0 :
             return False
 
-        self.cpu6502.Mapper = self.ROM.Mapper
-        self.cpu6502.Mirroring = self.ROM.Mirroring
-        self.cpu6502.Trainer = self.ROM.Trainer
-        self.cpu6502.FourScreen = self.ROM.FourScreen
-        self.cpu6502.UsesSRAM = self.ROM.UsesSRAM #As Boolean
+        #super().Mapper = self.ROM.Mapper
+        #self.cpu6502.Mapper = self.ROM.Mapper
+        #self.cpu6502.Mirroring = self.ROM.Mirroring
+        #self.cpu6502.Trainer = self.ROM.Trainer
+        #self.cpu6502.FourScreen = self.ROM.FourScreen
+        #self.cpu6502.UsesSRAM = self.ROM.UsesSRAM #As Boolean
     
         print "Successfully loaded %s" %self.ROM.filename
         self.cpu6502.reset6502()
         self.cpu6502.PPU.MirrorXor = self.ROM.MirrorXor # As Long 'Integer
 
-        self.cpu6502.APU.pAPUinit()
-        init6502()
         start = time.time()
         starttk = time.time()
         totalFrame = 0
-        while self.CPURunning:
+
+        self.PowerON()
+        
+        while NES.CPURunning:
 
             self.cpu6502.exec6502()
-            if self.cpu6502.MapperWrite:
+            if self.cpu6502.MapperWriteFlag:
                 self.MapperWrite(self.cpu6502.MapperWriteData)
 
             if time.time() - start > 4:
-                print 'FPS:',totalFrame >> 2
+                print 'FPS:',totalFrame >> 2,self.cpu6502.PPU.render,self.cpu6502.PPU.tilebased
                 start = time.time()
                 totalFrame = 0
 
@@ -188,13 +190,16 @@ class neshardware:
     def MapperChoose(self,MapperType):
         MapperChoose = 1
         if MapperType == 0:
+            self.Select8KVROM(0)
+
             if self.ROM.PrgCount >= 2:
+                
                 self.reg8 = 0;self.regA = 1;self.regC = 2;self.regE = 3
+                
             elif self.ROM.PrgCount == 1:
                 self.reg8 = 0;self.regA = 1;self.regC = 0;self.regE = 1
             else:
                 self.reg8 = 0;self.regA = 0;self.regC = 0;self.regE = 0
-            self.Select8KVROM(0)
             self.SetupBanks()
             
         elif MapperType == 1:
@@ -206,6 +211,13 @@ class neshardware:
             #data(0) = &H1F: data(3) = 0
         
         elif MapperType == 2:
+            self.reg8 = 0
+            self.regA = 1
+            self.regC = 0xFE
+            self.regE = 0xFF
+            self.SetupBanks()
+        elif MapperType == 3:
+            self.Select8KVROM( 0)
             self.reg8 = 0
             self.regA = 1
             self.regC = 0xFE
@@ -224,20 +236,24 @@ class neshardware:
     '===================================='
 
     def MapperWrite(self,MapperWriteData):
-        if self.ROM.Mapper == 2:
+        if NES.Mapper == 0:
+            return
+        elif NES.Mapper == 2:
             self.reg8 = MapperWriteData['value'] * 2
             self.regA = self.reg8 + 1
             self.SetupBanks()
-            self.cpu6502.MapperWrite = False
+            self.cpu6502.MapperWriteFlag = False
+        elif NES.Mapper == 3:
+            self.Select8KVROM(MapperWriteData['value'] & self.AndIt)
         else:
-            print "Unsupport MapperWrite", self.ROM.Mapper
+            print "Unsupport MapperWrite", NES.Mapper
     #@deco
     def MaskVROM(self, page, mask):
         return page & (mask - 1)
 
 
     def Select8KVROM(self, val1):
-        val1 = self.MaskVROM(val1, self.ROM.ChrCount)
+        val1 = self.MaskVROM(val1, NES.VROM_8K_SIZE)
         MemCopy(self.cpu6502.PPU.VRAM, 0, self.VROM, val1 * 0x2000, 0x2000)
 
     #'only switches banks when needed
@@ -268,9 +284,14 @@ class neshardware:
             MaskBankAddress = bank
         return MaskBankAddress
 
+    def SetPROM_8K_Bank(self, page, bank ):
+        pass
+	#'''bank %= NES.PROM_8K_SIZE;
+	#CPU_MEM_BANK[page] = PROM+0x2000*bank;
+	#CPU_MEM_TYPE[page] = BANKTYPE_ROM;
+	#CPU_MEM_PAGE[page] = bank;'''
 
 
-    
 
 
 
@@ -280,8 +301,14 @@ class neshardware:
 if __name__ == '__main__':
     pass
     fc = neshardware(debug)
+    print fc.Mapper
     #fc.debug = True
-    fc.ROM.LoadNES(os.getcwd() + '\\roms\\1944.nes')
+    fc.LoadROM(os.getcwd() + '\\roms\\Twinbee (J).nes')
+    print fc.Mapper
+    #print [[hex(i),hex(fc.MaskBankAddress(i)),hex(i & 0xF)] for i in range(255)]
+    #print fc.MaskBankAddress(1)
+    #print fc.MaskBankAddress(0xEE)
+    #print fc.MaskBankAddress(0xFF)
     fc.StartingUp()
         
 

@@ -2,6 +2,7 @@
 
 import time
 from numba import jit
+import traceback
 
 import keyboard
 
@@ -21,7 +22,8 @@ from deco import *
 from vbfun import MemCopy
          
 
-         
+from nes import NES
+
 from apu import APU
 from ppu import PPU
 from joypad import JOYPAD
@@ -31,7 +33,7 @@ from joypad import JOYPAD
 
 
 
-class cpu6502:
+class cpu6502(NES):
     CurrentLine =0 #Long 'Integer
     AddressMask =0 #Long 'Integer
 
@@ -59,27 +61,19 @@ class cpu6502:
 
     PC = 0 # As Long                   '16 bit 寄存器 其值为指令地址
     savepc = 0 # As Long
-    value = 0 # As Long 'Integer
+    #value = 0 # As Long 'Integer
     value2 = 0 # As Long 'Integer
-    _sum = 0 # As Long 'Integer
+    #_sum = 0 # As Long 'Integer
     saveflags = 0 # As Long 'Integer
-    _help = 0 # As Long
+    #_help = 0 # As Long
 
     opcode = 0 # As Byte
     clockticks6502 = 0 # As Long
 
     ' arrays'
-    #TICKS = [0] * 0x100 # As Byte
-    #addrmode = [0] * 0x100 #As Byte
-    #instruction = [0] * 0x100 # As Byte
-    #Ticks, instruction, addrmode = init6502()
     #gameImage = [] #As Byte
 
-    #print TICKS, instruction, addrmode
     
-    CPUPaused = False #As Boolean
-
-    CPURunning = True
     
     addrmodeBase = 0 #As Long
 
@@ -108,9 +102,11 @@ class cpu6502:
 
     
     bgBuffer = [0] * 4096 # As Long
+
+    
     def __init__(self):
         self.debug = False
-        self.MapperWrite = False
+        self.MapperWriteFlag = False
         self.MapperWriteData = {'Address':0,'value':0}
 
         self.FrameFlag = False
@@ -118,73 +114,73 @@ class cpu6502:
 
 
         self.instruction_dic ={
-     INS_BNE: self.bne6502,
-     INS_CMP: self.cmp6502,
-     INS_LDA: self.lda6502,
-     INS_STA: self.sta6502,
-     INS_BIT: self.bit6502,
-     INS_BVC: self.bvc6502,
-     INS_BEQ: self.beq6502,
-     INS_INY: self.iny6502,
-     INS_BPL: self.bpl6502,
-     INS_DEX: self.dex6502,
-     INS_INC: self.inc6502,
-     INS_JMP: self.jmp6502,
-     INS_DEC: self.dec6502,
-     INS_JSR: self.jsr6502,
-     INS_AND: self.and6502,
-     INS_NOP: self.nop6502,
-     INS_BRK: self.brk6502,
-     INS_ADC: self.adc6502,
-     INS_EOR: self.eor6502,
-     INS_ASL: self.asl6502,
-     INS_ASLA: self.asla6502,
-     INS_BCC: self.bcc6502,
-     INS_BCS: self.bcs6502,
-     INS_BMI: self.bmi6502,
-     INS_BVS: self.bvs6502,
-     INS_CLC: self.clc6502,
-     INS_CLD: self.cld6502,
-     INS_CLI: self.cli6502,
-     INS_CLV: self.clv6502,
-     INS_CPX: self.cpx6502,
-     INS_CPY: self.cpy6502,
-     INS_DEA: self.dea6502,
-     INS_DEY: self.dey6502,
-     INS_INA: self.ina6502,
-     INS_INX: self.inx6502,
-     INS_LDX: self.ldx6502,
-     INS_LDY: self.ldy6502,
-     INS_LSR: self.lsr6502,
-     INS_LSRA: self.lsra6502,
-     INS_ORA: self.ora6502,
-     INS_PHA: self.pha6502,
-     INS_PHX: self.phx6502,
-     INS_PHP: self.php6502,
-     INS_PHY: self.phy6502,
-     INS_PLA: self.pla6502,
-     INS_PLP: self.plp6502,
-     INS_PLX: self.plx6502,
-     INS_PLY: self.ply6502,
-     INS_ROL: self.rol6502,
-     INS_ROLA: self.rola6502,
-     INS_ROR: self.ror6502,
-     INS_RORA: self.rora6502,
-     INS_RTI: self.rti6502,
-     INS_RTS: self.rts6502,
-     INS_SBC: self.sbc6502,
-     INS_SEC: self.sec6502,
-     INS_SED: self.sed6502,
-     INS_SEI: self.sei6502,
-     INS_STX: self.stx6502,
-     INS_STY: self.sty6502,
-     INS_TAX: self.tax6502,
-     INS_TAY: self.tay6502,
-     INS_TXA: self.txa6502,
-     INS_TYA: self.tya6502,
-     INS_TXS: self.txs6502,
-     INS_TSX: self.tsx6502,
-     INS_BRA: self.bra6502
+             INS_BNE: self.bne6502,
+             INS_CMP: self.cmp6502,
+             INS_LDA: self.lda6502,
+             INS_STA: self.sta6502,
+             INS_BIT: self.bit6502,
+             INS_BVC: self.bvc6502,
+             INS_BEQ: self.beq6502,
+             INS_INY: self.iny6502,
+             INS_BPL: self.bpl6502,
+             INS_DEX: self.dex6502,
+             INS_INC: self.inc6502,
+             INS_JMP: self.jmp6502,
+             INS_DEC: self.dec6502,
+             INS_JSR: self.jsr6502,
+             INS_AND: self.and6502,
+             INS_NOP: self.nop6502,
+             INS_BRK: self.brk6502,
+             INS_ADC: self.adc6502,
+             INS_EOR: self.eor6502,
+             INS_ASL: self.asl6502,
+             INS_ASLA: self.asla6502,
+             INS_BCC: self.bcc6502,
+             INS_BCS: self.bcs6502,
+             INS_BMI: self.bmi6502,
+             INS_BVS: self.bvs6502,
+             INS_CLC: self.clc6502,
+             INS_CLD: self.cld6502,
+             INS_CLI: self.cli6502,
+             INS_CLV: self.clv6502,
+             INS_CPX: self.cpx6502,
+             INS_CPY: self.cpy6502,
+             INS_DEA: self.dea6502,
+             INS_DEY: self.dey6502,
+             INS_INA: self.ina6502,
+             INS_INX: self.inx6502,
+             INS_LDX: self.ldx6502,
+             INS_LDY: self.ldy6502,
+             INS_LSR: self.lsr6502,
+             INS_LSRA: self.lsra6502,
+             INS_ORA: self.ora6502,
+             INS_PHA: self.pha6502,
+             INS_PHX: self.phx6502,
+             INS_PHP: self.php6502,
+             INS_PHY: self.phy6502,
+             INS_PLA: self.pla6502,
+             INS_PLP: self.plp6502,
+             INS_PLX: self.plx6502,
+             INS_PLY: self.ply6502,
+             INS_ROL: self.rol6502,
+             INS_ROLA: self.rola6502,
+             INS_ROR: self.ror6502,
+             INS_RORA: self.rora6502,
+             INS_RTI: self.rti6502,
+             INS_RTS: self.rts6502,
+             INS_SBC: self.sbc6502,
+             INS_SEC: self.sec6502,
+             INS_SED: self.sed6502,
+             INS_SEI: self.sei6502,
+             INS_STX: self.stx6502,
+             INS_STY: self.sty6502,
+             INS_TAX: self.tax6502,
+             INS_TAY: self.tay6502,
+             INS_TXA: self.txa6502,
+             INS_TYA: self.tya6502,
+             INS_TXS: self.txs6502,
+             INS_TSX: self.tsx6502,
+             INS_BRA: self.bra6502
         }
 
 
@@ -223,24 +219,27 @@ class cpu6502:
     
     def exec6502(self):
 
-        while self.CPURunning:
+        while NES.CPURunning:
             #self.debug()
-            if self.MapperWrite or self.FrameFlag:
+            if self.FrameFlag or self.MapperWriteFlag:
                 return
             
             self.opcode = self.Read6502(self.PC)  #Fetch Next Operation
             self.PC += 1
             self.clockticks6502 += Ticks[self.opcode]
-            starttk = time.clock()
-            self.exec_opcode(instruction[self.opcode])
-            #print time.clock() - starttk
-            #print self.clockticks6502
+
+            #self.exec_opcode(instruction[self.opcode])
+            try:
+                self.instruction_dic.get(instruction[self.opcode])()
+            except:
+                print "Invalid opcode - %s" %hex(instruction_opcode)
+                print (traceback.print_exc())
                 
-            
+                
             if self.clockticks6502 > self.maxCycles1:
                 #self.log("Normal:",self.status()) ############################
                 
-                self.CurrentLine = self.CurrentLine + 1
+                self.CurrentLine +=  + 1
 
                 self.PPU.RenderScanline(self.CurrentLine)
 
@@ -256,11 +255,13 @@ class cpu6502:
                 if self.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
                     if self.CurrentLine == 240 :
-                        #if render :
+                        if self.PPU.render :
                             #pass
-                            #blitScreen()
+                            self.PPU.blitScreen()
+                            #self.PPU.blitPal()
+                            
                             #realframes = realframes + 1
-                        self.Frames = self.Frames + 1
+                        NES.Frames += 1
                        
                             
                         pass
@@ -269,11 +270,7 @@ class cpu6502:
             
                     self.PPU.Status = 0x80
 
-                    if keyboard.is_pressed('enter'):
-                        print "press"
-                        self.JOYPAD1.Joypad[3] = 0x41
-                    else:
-                        self.JOYPAD1.Joypad[3] = 0x40
+
                         
                     #JoyPadINPUT()
                     
@@ -281,8 +278,9 @@ class cpu6502:
                         self.nmi6502()
                         
                 if self.CurrentLine == 262:
-                    self.log("FRAME:",self.status()) ###########################
-                    self.APU.updateSounds(self.Frames)
+                    #self.log("FRAME:",self.status()) ###########################
+                    if not self.debug:
+                        self.APU.updateSounds()
                     
                     
                     self.CurrentLine = 0
@@ -299,30 +297,31 @@ class cpu6502:
         #"DF: reordered the the case's. Made address long (was variant)."
     
     def exec_opcode(self,instruction_opcode):
-       
         try:
-            self.instruction_dic.get(instruction_opcode)()
+            self.instruction_dic[instruction_opcode]()
         except:
             print "Invalid opcode - %s" %hex(instruction_opcode)
+            print (traceback.print_exc())
+            
 
     ' This is where all 6502 instructions are kept.'
     def adc6502(self):
         
         self.adrmode(self.opcode)
-        self.value = self.Read6502(self.savepc)
+        temp_value = self.Read6502(self.savepc)
      
         self.saveflags = self.p & 0x1
         #print "adc6502"
-        self._sum = self.a
-        self._sum = (self._sum + self.value) & 0xFF
-        self._sum = (self._sum + self.saveflags) & 0xFF
-        self.p = (self.p | 0x40) if (self._sum > 0x7F) or (self._sum < -0x80) else (self.p & 0xBF)
+        _sum = self.a
+        _sum = (_sum + temp_value) & 0xFF
+        _sum = (_sum + self.saveflags) & 0xFF
+        self.p = (self.p | 0x40) if (_sum > 0x7F) or (_sum < -0x80) else (self.p & 0xBF)
       
-        self._sum = self.a + (self.value + self.saveflags)
-        self.p = (self.p | 0x1) if (self._sum > 0xFF)  else (self.p & 0xFE)
+        _sum = self.a + (temp_value + self.saveflags)
+        self.p = (self.p | 0x1) if (_sum > 0xFF)  else (self.p & 0xFE)
 
       
-        self.a = self._sum & 0xFF
+        self.a = _sum & 0xFF
         if (self.p & 0x8) :
             self.p = (self.p & 0xFE)
             if ((self.a & 0xF) > 0x9) :
@@ -339,53 +338,36 @@ class cpu6502:
         self.p = (self.p & 0xFD) if (self.a) else (self.p | 0x2)
         self.p = (self.p | 0x80) if (self.a & 0x80) else (self.p & 0x7F)
 
-    def adrmode(self, opcode):
-        self.adrmode_opcode(addrmode[opcode])
-
-    def adrmode_opcode(self,addrmode_opcode):
-        #print ADR_ABS
-        '''adrmode_dic ={
-            ADR_ABS: self.abs6502,
-            ADR_ABSX: self.absx6502,
-            ADR_ABSY: self.absy6502,
-            ADR_IMP: ' nothing really necessary cause implied6502 = ""',
-            ADR_IMM: self.imm6502,
-            ADR_INDABSX: self.indabsx6502,
-            ADR_IND: self.indirect6502,
-            ADR_INDX: self.indx6502,
-            ADR_INDY: self.indy6502,
-            ADR_INDZP: self.indzp6502,
-            ADR_REL: self.rel6502,
-            ADR_ZP: self.zp6502,
-            ADR_ZPX: self.zpx6502,
-            ADR_ZPY: self.zpy6502
-            }'''
+    def adrmode(self, opcode):    #--------------------------   adrmode   -------------------
+        #self.adrmode_opcode()
         try:
-            self.adrmode_dic.get(addrmode_opcode)()
+            self.adrmode_dic[addrmode[opcode]]()
         except:
-            print "Invalid addrmode - %d" %addrmode_opcode
+            print "Invalid addrmode - %d" %addrmode[opcode]
+            print (traceback.print_exc())
 
     
     def indabsx6502(self):
-      self.value = self.Read6502_2(self.PC) + self.X
+      #temp_value = self.Read6502_2(self.PC) + self.X
       
-      self.savepc = self.Read6502_2(self.value)
+      self.savepc = self.Read6502_2(self.Read6502_2(self.PC) + self.X)
 
 
     def indx6502(self):
       #'TS: Changed PC++ & removed ' (?)
-      self.value = self.Read6502(self.PC) & 0xFF
-      self.value = (self.value + self.X) & 0xFF
+      temp_value = self.Read6502(self.PC) & 0xFF
+      temp_value = (temp_value + self.X) & 0xFF
       self.PC += 1
-      self.savepc = self.Read6502_2(self.value)
+      self.savepc = self.Read6502_2(temp_value)
 
 
     def indy6502(self):
         #'TS: Changed PC++ & == to != (If then else)
-        self.value = self.Read6502(self.PC)
-        self.PC += 1
+        #print 'indy6502'
+        #temp_value = self.Read6502(self.PC)
       
-        self.savepc = self.Read6502_2(self.value)
+        self.savepc = self.Read6502_2(self.Read6502(self.PC))
+        self.PC += 1
   
         if (Ticks[self.opcode] == 5) and (self.savepc >>8 != (self.savepc + self.Y) >> 8):
             
@@ -397,10 +379,13 @@ class cpu6502:
   
     def indzp6502(self):
         'Added pc=pc+1, & (value+1) (Why Don?)'
-        self.value = self.Read6502(self.PC)
+        '''temp_value = self.Read6502(self.PC)
         self.PC += 1
-        self.savepc = self.Read6502_2(self.value)
-
+        self.savepc = self.Read6502_2(temp_value)'''
+        print 'indzp6502'
+        self.savepc = self.Read6502_2(self.Read6502(self.PC))
+        self.PC += 1
+        
     def zpx6502(self):
         #'TS: Rewrote everything!
         #'Overflow stupid check
@@ -425,8 +410,8 @@ class cpu6502:
         self.PC += 1
     
     def indirect6502(self):
-        self._help = self.Read6502_2(self.PC)
-        self.savepc = self.Read6502_2(self._help)
+        #self._help = self.Read6502_2(self.PC)
+        self.savepc = self.Read6502_2(self.Read6502_2(self.PC))
         self.PC += 2
 
 
@@ -448,6 +433,7 @@ class cpu6502:
     def abs6502(self):
         self.savepc = self.Read6502_2(self.PC) #+ (self.Read6502(self.PC + 1) << 8 )
         self.PC += 2
+            
       
     def abs_ct(self,var):
         if Ticks[self.opcode] == 4:
@@ -466,21 +452,21 @@ class cpu6502:
     
     def and6502(self):
         self.adrmode(self.opcode)
-        self.value = self.Read6502(self.savepc)
-        self.a &= self.value
+        temp_value = self.Read6502(self.savepc)
+        self.a &= temp_value
         self.common_set_p(self.a)
 
 
 
     def asl6502(self):
         self.adrmode(self.opcode)
-        self.value = self.Read6502(self.savepc)
+        temp_value = self.Read6502(self.savepc)
   
-        self.p = (self.p & 0xFE) | ((self.value >> 7) & 0x1)
-        self.value = self.value << 1 & 0xFF #(self.value * 2) & 0xFF
+        self.p = (self.p & 0xFE) | ((temp_value >> 7) & 0x1)
+        temp_value = temp_value << 1 & 0xFF #(temp_value * 2) & 0xFF
   
-        self.Write6502(self.savepc, (self.value & 0xFF))
-        self.common_set_p(self.value)
+        self.Write6502(self.savepc, (temp_value & 0xFF))
+        self.common_set_p(temp_value)
 
 
     def asla6502(self):
@@ -520,10 +506,10 @@ class cpu6502:
 
     def bit6502(self):
         self.adrmode(self.opcode)
-        self.value = self.Read6502(self.savepc)
+        temp_value = self.Read6502(self.savepc)
 
-        self.p = (self.p & 0xFD) if (self.value & self.a)  else (self.p | 0x2)
-        self.p = ((self.p & 0x3F) | (self.value & 0xC0))
+        self.p = (self.p & 0xFD) if (temp_value & self.a)  else (self.p | 0x2)
+        self.p = ((self.p & 0x3F) | (temp_value & 0xC0))
 
 
     def bmi6502(self):
@@ -603,13 +589,13 @@ class cpu6502:
     
     def compare_var(self,var):
       self.adrmode(self.opcode)
-      self.value = self.Read6502(self.savepc)
+      temp_value = self.Read6502(self.savepc)
 
-      self.p = (self.p | 0x1) if (var + 0x100 - self.value > 0xFF) else (self.p & 0xFE)
+      self.p = (self.p | 0x1) if (var + 0x100 - temp_value > 0xFF) else (self.p & 0xFE)
       
-      self.value = (var + 0x100 - self.value) & 0xFF
+      temp_value = (var + 0x100 - temp_value) & 0xFF
 
-      self.common_set_p(self.value)
+      self.common_set_p(temp_value)
 
 
     def common_set_p(self, var):
@@ -621,8 +607,8 @@ class cpu6502:
         self.adrmode(self.opcode)
         self.Write6502((self.savepc), (self.Read6502(self.savepc) - 1) & 0xFF)
           
-        self.value = self.Read6502(self.savepc)
-        self.common_set_p(self.value)
+        #temp_value = self.Read6502(self.savepc)
+        self.common_set_p(self.Read6502(self.savepc))
 
     def dex6502(self):
         self.X = (self.X - 1) & 0xFF
@@ -645,8 +631,8 @@ class cpu6502:
         self.adrmode(self.opcode)
         self.Write6502(self.savepc, (self.Read6502(self.savepc) + 1) & 0xFF)
   
-        self.value = self.Read6502(self.savepc)
-        self.common_set_p(self.value)
+        temp_value = self.Read6502(self.savepc)
+        self.common_set_p(temp_value)
         
     def inx6502(self):
         self.X = (self.X + 1) & 0xFF
@@ -695,14 +681,14 @@ class cpu6502:
 
     def lsr6502(self):
         self.adrmode(self.opcode)
-        self.value = self.Read6502(self.savepc)
+        temp_value = self.Read6502(self.savepc)
          
-        self.p = (self.p & 0xFE) | (self.value & 0x1)
+        self.p = (self.p & 0xFE) | (temp_value & 0x1)
   
-        self.value = (self.value // 2) & 0xFF
-        self.Write6502(self.savepc, (self.value & 0xFF))
+        temp_value = (temp_value // 2) & 0xFF
+        self.Write6502(self.savepc, (temp_value & 0xFF))
   
-        self.common80_set_p(self.value)
+        self.common80_set_p(temp_value)
 
     def common80_set_p(self, var):
         self.p = (self.p & 0xFD) if (var) else (self.p | 0x2)
@@ -761,15 +747,15 @@ class cpu6502:
     def rol6502(self):
         self.saveflags = (self.p & 0x1)
         self.adrmode(self.opcode)
-        self.value = self.Read6502(self.savepc)
+        temp_value = self.Read6502(self.savepc)
       
-        self.p = (self.p & 0xFE) | ((self.value >> 7) & 0x1)
+        self.p = (self.p & 0xFE) | ((temp_value >> 7) & 0x1)
   
-        self.value = (self.value * 2) & 0xFF
-        self.value = self.value | self.saveflags
+        temp_value = (temp_value * 2) & 0xFF
+        temp_value = temp_value | self.saveflags
   
-        self.Write6502(self.savepc, (self.value & 0xFF))
-        self.common_set_p(self.value)
+        self.Write6502(self.savepc, (temp_value & 0xFF))
+        self.common_set_p(temp_value)
         
     def rola6502(self):
         self.saveflags = (self.p & 0x1)
@@ -781,17 +767,17 @@ class cpu6502:
     def ror6502(self):
         self.saveflags = (self.p & 0x1)
         self.adrmode(self.opcode)
-        self.value = self.Read6502(self.savepc)
+        temp_value = self.Read6502(self.savepc)
       
-        self.p = (self.p & 0xFE) | (self.value & 0x1)
-        self.value = (self.value // 2) & 0xFF
+        self.p = (self.p & 0xFE) | (temp_value & 0x1)
+        temp_value = (temp_value // 2) & 0xFF
 
         
         if (self.saveflags) :
-            self.value = self.value | 0x80
+            temp_value = temp_value | 0x80
 
-        self.Write6502(self.savepc, (self.value & 0xFF))
-        self.common_set_p(self.value)
+        self.Write6502(self.savepc, (temp_value & 0xFF))
+        self.common_set_p(temp_value)
 
     def rora6502(self):
         self.saveflags = (self.p & 0x1)
@@ -821,24 +807,24 @@ class cpu6502:
 
     def sbc6502(self):
       self.adrmode(self.opcode)
-      self.value = self.Read6502(self.savepc) ^ 0xFF
+      temp_value = self.Read6502(self.savepc) ^ 0xFF
   
       self.saveflags = (self.p & 0x1)
   
-      self._sum = self.a
-      self._sum = (self._sum + self.value) & 0xFF
-      self._sum = (self._sum + (self.saveflags * 16)) & 0xFF
+      _sum = self.a
+      _sum = (_sum + temp_value) & 0xFF
+      _sum = (_sum + (self.saveflags * 16)) & 0xFF
       
       
-      self.p = self.p | 0x40 if ((self._sum > 0x7F) | (self._sum <= -0x80)) else self.p & 0xBF
+      self.p = self.p | 0x40 if ((_sum > 0x7F) | (_sum <= -0x80)) else self.p & 0xBF
 
       
-      self._sum = self.a + (self.value + self.saveflags)
+      _sum = self.a + (temp_value + self.saveflags)
       
-      self.p = (self.p | 0x1) if (self._sum > 0xFF) else (self.p & 0xFE)
+      self.p = (self.p | 0x1) if (_sum > 0xFF) else (self.p & 0xFE)
 
       
-      self.a = self._sum & 0xFF
+      self.a = _sum & 0xFF
       if (self.p & 0x8) :
         self.a = (self.a - 0x66) & 0xFF
         self.p = self.p & 0xFE
@@ -933,7 +919,8 @@ class cpu6502:
             return self.bankE[Address - 0xE000]
 
         
-        elif addr == 0x01:
+        elif Address == 0x2002 or Address == 0x2004 or Address == 0x2007:#addr == 0x01:
+            
             return self.PPU.Read(Address)
 
         elif (Address >=0x4000 and Address <=0x4013) or Address == 0x4015:
@@ -952,7 +939,7 @@ class cpu6502:
             print "Read SRAM "
         else:
             print hex(Address)
-            print "Read HARD bRK",self.debug() ###########################
+            print "Read HARD bRK"#,self.debug() ###########################
         return 0
 
 #'=========================================='
@@ -962,10 +949,13 @@ class cpu6502:
 #'=========================================='
     def Write6502(self,Address,value):
         addr = Address >> 13
-        #addr2 = Address >> 15
+        addr2 = Address >> 15
         if addr == 0x00:
             'Address >=0x0 and Address <=0x1FFF:'
             self.bank0[Address & 0x7FF] = value
+        elif addr2 == 0x01: #Address >=0x8000 and Address <=0xFFFF:
+            #print "Mapper Write"
+            self.MapperWrite(Address, value)
             
         elif addr == 0x01:
             '$2000-$3FFF'
@@ -977,19 +967,15 @@ class cpu6502:
                 pass
                 self.WriteReg(Address,value)
         
-        elif Address >= 0x6000 and Address <= 0x7FFF:
-            if SpecialWrite6000 == True :
-                print 'SpecialWrite6000'
-                #MapperWrite Address, value
-            elif UsesSRAM:
+        elif addr == 0x03:#Address >= 0x6000 and Address <= 0x7FFF:
+            if NES.SpecialWrite6000 == True :
+                #print 'SpecialWrite6000'
+                self.MapperWrite(Address, value)
+
+            elif NES.UsesSRAM:
                 if Mapper != 69:
-                    pass
-                    #bank6(Address & 0x1FFF) = value
-        elif Address >=0x8000 and Address <=0xFFFF:
-            ''''''
-            self.MapperWrite = True
-            self.MapperWriteData['Address'] = Address
-            self.MapperWriteData['value'] = value
+                    self.bank6[Address & 0x1FFF] = value
+
 
                     
         else:
@@ -1007,43 +993,35 @@ class cpu6502:
         elif addr == 0x17:
             pass
             self.JOYPAD2.Joypad_Count = 0x0
+        else:
+            print addr
 
+    def MapperWrite(self,Address, value):
+        self.MapperWriteFlag = True
+        self.MapperWriteData['Address'] = Address
+        self.MapperWriteData['value'] = value
 
+@jit
+def a(value):
+    for i in range(20000000):
+        #value = True
+        value = value & 0xFF
+@jit
+def a1(value):
+    for i in range(20000000):
+        #value = 1
+        value = value & 0b11111111
+        #value &= 0xFF
 
-        
-    def testspeed(self):
-        aa = 200
-        list1 = [200,300,300,300,300,300,300,300,300,300,300,300,300,300,300,300,300,300]
-        dic = {'aa':200,'bb':300}
-        start = time.clock()
-        for i in range(10000000):
-            bb = aa
-            #print Address
-            pass
-        print time.clock() - start
-        start = time.clock()
-        for i in range(10000000):
-            cc = dic['aa']
-            #print Address
-            pass
-        print time.clock() - start
-        start = time.clock()
-        for i in range(10000000):
-            dd = list1[0]
-            #print Address
-            pass
-        print time.clock() - start
-        start = time.clock()
-        for i in range(10000000):
-            ee = list1[10]
-            #print Address
-            pass
-        print time.clock() - start
+def b(value):
+    for i in range(20000000):
+        value = 1
+        value = value & 0xFF
 
-    
-#from cpu6502instructions import *
-
-
+def b1(value):
+    for i in range(20000000):
+        value = 333 #& 0xFF
+        value &= 0xFF
 
 if __name__ == '__main__':
     #cpu = cpu6502()
@@ -1052,25 +1030,25 @@ if __name__ == '__main__':
     #print help(cpu)
     #print ADR_IMM
     #print cpu.adrmode_opcode(3)
-    start = time.clock()
     Address = 15
     #cpu.aa = 200
     list1 = [0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0x10,0x11,0x12,0x13,0x15]
-    
-    for i in range(1000000):
-        if  Address<0x14 or Address == 0x15:
-        #aa = Address * 0x100
-            pass
+
+    start = time.clock()
+    a(Address)
     print time.clock() - start
+
+    start = time.clock()
+    a1(Address)
+    print time.clock() - start
+
     
     start = time.clock()
-    addr = Address >> 13
-    for i in range(1000000):
- 
-        if   Address<=0x13 or Address == 0x15:
-            pass
-        #aa = Address << 2
-        
+    b(Address)
+    print time.clock() - start
+
+    start = time.clock()
+    b1(Address)
     print time.clock() - start
 
     

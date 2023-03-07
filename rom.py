@@ -16,10 +16,11 @@ except:
 
 from PIL import Image,ImageDraw,ImageFont,ImageFilter
 #from PIL import ImageTk
-#import cv2
+import cv2
 
 
 import matplotlib.pyplot as plt#约定俗成的写法plt
+from matplotlib.animation import FuncAnimation
 import numpy as np
 
 import pylab
@@ -28,6 +29,8 @@ import pylab
 #from neshardware import * 
 from deco import *
 from wrfilemod import *
+
+from nes import NES
 
 nesROMdata =[]
 i16K_ROM_NUMBER = 0
@@ -41,7 +44,7 @@ def rom_ok(data):
     else:
         return False
 
-class nesROM:
+class nesROM(NES):
     PrgCount = 0 # As Byte
     PrgCount2 = 0 # As Long
     ChrCount = 0 # As Byte,
@@ -49,21 +52,19 @@ class nesROM:
     data = []
     filename = ''
 
-    Mapper, Mirroring, Trainer, FourScreen = 0,0,0,0
-    MirrorXor = 0 # As Long 'Integer
-    UsesSRAM = False #As Boolean
+
 
     '''
 '===================================='
-'           LoadNES(filename)        '
+'           LoadROM(filename)        '
 ' Used to Load the NES ROM/VROM to   '
 ' specified arrays, gameImage and    '
 ' VROM, then figures out what to do  '
 ' based on the mapper number.        '
 '===================================='
 '''
-    def LoadNES(self,filename):
-        self.LoadNES = 0
+    def LoadROM(self,filename):
+        
         self.filename = filename
         self.data = read_file_to_array(filename)
         self.NESHEADER = self.data[:0x20]
@@ -85,9 +86,9 @@ class nesROM:
 
 
     
-        self.PrgCount = get_16k_rom_num(self.data); self.PrgCount2 = self.PrgCount      #'16kB ROM banks 的数量
+        self.PrgCount = self.GetPROM_SIZE(); self.PrgCount2 = self.PrgCount      #'16kB ROM banks 的数量
 
-        self.ChrCount = get_8k_vrom_num(self.data); self.ChrCount2 = self.ChrCount      #'8kB VROM banks 的数量
+        self.ChrCount = self.GetVROM_SIZE(); self.ChrCount2 = self.ChrCount      #'8kB VROM banks 的数量
         print "[ " , self.PrgCount , " ] 16kB ROM Bank(s)"
         print "[ " , self.ChrCount , " ] 8kB CHR Bank(s)"
     
@@ -101,22 +102,47 @@ class nesROM:
         self.Mapper = (self.ROMCtrl & 0xF0) // 16
         self.Mapper = self.Mapper + self.ROMCtrl2
         print "[ " , self.Mapper , " ] Mapper"
+        NES.Mapper = self.Mapper
+
+        NES.PROM_8K_SIZE  = self.GetPROM_SIZE() * 2
+        NES.PROM_16K_SIZE = self.GetPROM_SIZE()
+        NES.PROM_32K_SIZE = self.GetPROM_SIZE() / 2
+
+        VROM_1K_SIZE = self.GetVROM_SIZE() * 8
+        VROM_2K_SIZE = self.GetVROM_SIZE() * 4
+        VROM_4K_SIZE = self.GetVROM_SIZE() * 2
+        VROM_8K_SIZE = self.GetVROM_SIZE()
     
         self.Trainer = ROMCtrl & 0x4
         self.Mirroring = ROMCtrl & 0x1
         self.FourScreen = ROMCtrl & 0x8
-    
         self.UsesSRAM = True if self.ROMCtrl & 0x2 else False
-        print "Mirroring=" , self.Mirroring , " Trainer=" , self.Trainer , " FourScreen=" , self.FourScreen , " SRAM=" , self.UsesSRAM
+
+        NES.Trainer = ROMCtrl & 0x4
+        NES.Mirroring = ROMCtrl & 0x1
+        NES.FourScreen = ROMCtrl & 0x8
+        
+        NES.UsesSRAM = True if self.ROMCtrl & 0x2 else False
+
+        
+        print "Mirroring=" , NES.Mirroring , " Trainer=" , NES.Trainer , " FourScreen=" , NES.FourScreen , " SRAM=" , NES.UsesSRAM
     
         #Dim PrgMark As Long
         self.PrgMark = (self.PrgCount2 * 0x4000) - 1
-        self.MirrorXor = 0x800 if self.Mirroring == 1 else 0x400
+        #self.MirrorXor = 0x800 if self.Mirroring == 1 else 0x400
+
+        NES.MirrorXor = 0x800 if NES.Mirroring == 1 else 0x400
         
-        if self.Trainer:
+        if NES.Trainer:
             print "Error: Trainer not yet supported." #, VERSION
-            self.LoadNES = 0
-            return
+            return 0
+        
+    def GetPROM_SIZE(self):
+        return self.data[0x4]
+
+    def GetVROM_SIZE(self):
+        return self.data[0x5]
+
 
 def calculate_Mapper(NESHEADER):
     return  (NESHEADER[6] & 0xF0) // 16 + NESHEADER[7]
@@ -148,7 +174,7 @@ def get_block(block_start,block_num,block_len):
 def Tile_(data):
     Tile = []
     for item in data:
-        Tile.append('{:0^8}'.format((bin(ord(item)))[2:]))
+        Tile.append('{:0^8}'.format((bin(item))[2:]))
     return Tile
 
 #@deco
@@ -176,7 +202,7 @@ def HEX_RGB(value):
 #print HEX_RGB('#80')
 
 
-def pal_arr(cpal):
+def pal_array(cpal):
     pal_arr = []
     for i in cpal:
         pal_arr.append(HEX_RGB(i))
@@ -184,7 +210,7 @@ def pal_arr(cpal):
 
 def draw_str(Tiles,i):
         Tile_color = ['white','yellow','red','green']
-        global image
+        #global image
         #print Tiles
         #print i/2,
         digit = list(map(str, range(10))) + list("ABCDEF")
@@ -208,15 +234,15 @@ canvas.create_rectangle(pos_x + x*ratio ,
                                         outline = CPal[int(c)],
                                         fill = CPal[int(c)])
 '''
-        
-def Tiles_arr(Tiles):
+
+def Tiles_array(Tiles):
     Tiles_arr = []
     for y,Tile in enumerate(Tiles):
         Tile_arr = []
         for x,c in enumerate(Tile):
-            Tile_arr.append(pal_array[int(c)])
+            Tile_arr.append(CPal[int(c)])
         Tiles_arr.append(Tile_arr)
-    return Tiles_arr
+    return np.array(Tiles_arr,np.uint8)
 
 
 '''
@@ -264,20 +290,37 @@ def rndColor():
     return random.randint(64,255),random.randint(64,255),random.randint(64,255)
 
 if __name__ == '__main__':
+    #print NES.CPal
+    CPal = [[item >> 16, item >> 8 & 0xFF ,item & 0xFF] for item in NES.CPal]
+    #print CPal
+
     nesROMdata = read_file_to_array('roms//mario.nes')
     nes_head = nesROMdata[:0x20]
-    print (nes_head)
+    #print (nes_head)
     #print hex(len(nesROMdata))
     #fig,axes=plt.subplots(nrows=2,ncols=2)#定一个2*2的plot
-    width,height = 320,240
-    image = Image.new('RGB',(320,240),(255,255,255))
-    draw = ImageDraw.Draw(image)
-    for i in range(10):
-        for x in range(width):
-            for y in range(height):
-                draw.point((x,y),fill = rndColor())
-        plt.imshow(image)
-        plt.show(block = False)
+    width,height = 256,241
+    #image = Image.new('RGB',(320,240),(255,255,255))
+    #draw = ImageDraw.Draw(image)
+    #newdata = []
+
+    ratio = 1
+
+    cv2.namedWindow('BGR', cv2.WINDOW_NORMAL)
+    A = np.random.randint(0,256,size = (2,10,3),dtype=np.uint8)
+    B = np.random.randint(0,256,size = (1,10,3),dtype=np.uint8)
+    print A
+    print 
+    print B
+    print
+    A[0] = B[0]
+    print A
+    for i in range(1000):
+        A = np.random.randint(0,256,size = (height,width,3),dtype=np.uint8)
+        #print A
+        cv2.imshow("BGR", A)
+        cv2.waitKey(1)
+    cv2.destroyAllWindows()
     
     if rom_ok(nes_head):
         i16K_ROM_NUMBER = get_16k_rom_num(nes_head)
@@ -297,18 +340,27 @@ if __name__ == '__main__':
         fps_t = ''
         s_t = 0
         
-        while 1:
+        while 0:
             fps += 1
-            image=np.zeros([s_h * ratio,s_w * ratio,3],np.uint8)
+            img=np.zeros([height * ratio,width * ratio,3],np.uint8)
+            print img[0][0]
+            #print type(img)
             for i in xrange(0,len(VROM[0]),0x10):
                 pass
-                #print Tiles_arr(get_Tile(0,i))
-                draw_str(get_Tile(0,i),i/16)
+                print get_Tile(0,i)
+                A = Tiles_array(get_Tile(0,i))
+                print A
+                B = np.random.randint(0,256,size = (len(A[0]),len(A),3),dtype=np.uint8)
+                print B
+                cv2.imshow("BGR", A)
+                cv2.waitKey(1)
+                #draw_str(get_Tile(0,i),i/16)
                 #break
 
                 if i>= 0x10*16:
                     pass
                     #break
+                #cv2.imshow("BGR", A)
             if time.time() - s_t >= 2:
                 fps_t = 'fps:' + str(fps/(time.time() - s_t))
                 fps = 0
@@ -317,9 +369,15 @@ if __name__ == '__main__':
                 #s_t = time.time()
 
             #if key == ord("q"):  
-            #    break    
-        tk.mainloop()
+            #    break
+            #break
+        #tk.mainloop()
+
+
+
         
+
+
     #image = cv2.imread('8x8.png')
     
     #cv2.waitKey(0)
