@@ -5,6 +5,8 @@ import time
 import datetime
 import threading
 
+import cv2
+
 import keyboard
 
 #from numba import jit
@@ -167,10 +169,15 @@ class neshardware(NES):
                 self.MapperWrite(self.cpu6502.MapperWriteData)
 
             if time.time() - start > 4:
-                print 'FPS:',totalFrame >> 2,self.cpu6502.PPU.render,self.cpu6502.PPU.tilebased
+                FPS =  'FPS: %d'%(totalFrame >> 2) # 
+                if self.cpu6502.PPU.render:
+                    cv2.setWindowTitle('Main',FPS)
+                else:
+                    print FPS,self.cpu6502.PPU.render,self.cpu6502.PPU.tilebased
                 start = time.time()
                 totalFrame = 0
 
+            
             totalFrame += 1 if self.cpu6502.FrameFlag else 0
 
             self.cpu6502.FrameFlag = False

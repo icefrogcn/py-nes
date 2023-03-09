@@ -22,9 +22,7 @@ class APU(NES):
     vlengths = [5, 127, 10, 1, 19, 2, 40, 3, 80, 4, 30, 5, 7, 6, 13, 7, 6, 8, 12, 9, 24, 10, 48, 11, 96, 12, 36, 13, 8, 14, 16, 15] # As Long
 
     'DF: powers of 2'
-    pow2 = [2**i for i in range(31)]#*(31) #As Long
 
-    pow2 +=  [-2147483648]
     
     def __init__(self,debug = False):
         pass
@@ -80,7 +78,7 @@ class APU(NES):
 
     def playfun(self,ch,v):
         
-        if self.SoundCtrl and self.pow2[ch] :
+        if self.SoundCtrl and NES.pow2[ch] :
             volume = v #'Get volume'
             length = self.vlengths[self.Sound[ch * 4 + 3] // 8] #'Get length'
             if volume > 0 :
@@ -335,7 +333,7 @@ def play_note(note, length, track, base_num=0, delay=0, velocity=1.0, channel=0)
 
 if __name__ == '__main__':
     apu = APU()
-    print apu.pow2
+    print NES.pow2
     
     midiout = rtmidi.MidiOut()
     available_ports = midiout.get_ports()

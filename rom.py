@@ -14,7 +14,7 @@ try:
 except:
     import tkinter
 
-from PIL import Image,ImageDraw,ImageFont,ImageFilter
+#from PIL import Image,ImageDraw,ImageFont,ImageFilter
 #from PIL import ImageTk
 import cv2
 

@@ -15,7 +15,7 @@ from wrfilemod import read_file_to_array
 
 #import mmc
 
-
+from pal import pal
 
 from vbfun import MemCopy
 
@@ -27,16 +27,13 @@ pow2 +=  [-2147483648]
 
 
 def fillTLook():
-    tLook = [0] * (65536 * 8)
+    tLook = [0] * 0x80000
     for b1 in range(0x100):             #= 0 To 255
         for b2 in range(0x100):              #= 0 To 255
             for X in range(0x8):                #= 0 To 7
                 c = 1 if b1 & pow2[X] else  0
                 c += 2 if b2 & pow2[X]  else 0
-                try:
-                    tLook[b1 * 2048 + b2 * 8 + X] = c
-                except:
-                    print b1 * 2048 + b2 * 8 + X
+                tLook[b1 * 2048 + b2 * 8 + X] = c
     return tLook
 
 class NES(object):       
@@ -133,6 +130,10 @@ class NES(object):
     Frames = 0
 
     tLook = fillTLook()
+
+    pow2 = [2**i for i in range(31)]#*(31) #As Long
+
+    pow2 +=  [-2147483648]
     
     def __init__(self,debug = False):
         NESLoop = 0

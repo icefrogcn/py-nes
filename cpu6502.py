@@ -255,8 +255,11 @@ class cpu6502(NES):
                 if self.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
                     if self.CurrentLine == 240 :
+                        if self.PPU.Control1 & 0x80:
+                            self.nmi6502()
+                            
                         if self.PPU.render :
-                            #pass
+                            pass
                             self.PPU.blitScreen()
                             #self.PPU.blitPal()
                             
@@ -274,8 +277,8 @@ class cpu6502(NES):
                         
                     #JoyPadINPUT()
                     
-                    if self.CurrentLine == 240 and (self.PPU.Control1 & 0x80):
-                        self.nmi6502()
+                    
+                        
                         
                 if self.CurrentLine == 262:
                     #self.log("FRAME:",self.status()) ###########################
