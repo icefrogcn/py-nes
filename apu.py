@@ -45,6 +45,10 @@ class APU(NES):
         self.midiout.send_message([0xC2,87]) #Triangle wave
         self.midiout.send_message([0xC3,127]) #Noise. Used gunshot. Poor but sometimes works.'
 
+    def ShutDown(self):
+        if self.available_ports:
+            self.midiout.close_port()
+
     def Write(self,Address,value):
         if Address == 0x15:
             self.SoundCtrl = value

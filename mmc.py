@@ -1,81 +1,52 @@
 # -*- coding: UTF-8 -*-
-#CPU Memory Map
+
 ''' Functions for emulating MMCs. Select8KVROM and the
 ' like
 ' 16.07.00'''
-CurrVr = 0 #As Byte
-PrgSwitch1 = 0 #As Byte
-PrgSwitch2 = 0 #As Byte
-SpecialWrite6000 = False #As Boolean
 
-bank0(2047) As Byte ' RAM            主工作内存
-bank6(8191) As Byte ' SaveRAM        记忆内存
-bank8(8191) As Byte '8-E are PRG-ROM.主程序
-bankA(8191) As Byte
-bankC(8191) As Byte
-bankE(8191) As Byte
-'''
-'the mappers try to only switch banks when necessary.
-'The following helps it to ignore most unnecessary bankswitches
-'下面的是用来帮助忽略大多数不必要的程序快切换
-'The following vars store addresses,so that if a game switches to a bank that's already loaded in that slot,
-'所以如果一个游戏切换到已经被载入的程序块，下面的用来变量存贮地址将能够避免被相同的数据覆盖
-'it will be able to avoid copying data over itself
+from nes import NES
+from rom import nesROM as ROM
 
-'''
-'''
-Private pval8 As Long
-Private pval4(1) As Long
-Private pval2(3) As Long
-Private pval1(7) As Long
-Public pTablesWritten As Boolean
+class MMC(NES):
+    CurrVr  = 0 #As Byte
+    PrgSwitch1 =0 # Byte
+    PrgSwitch2 =0 # Byte
+    SpecialWrite6000 = False # Boolean
 
-Public Sub MMC3_Sync()
-If swap Then
-    reg8 = &HFE
-    regA = PrgSwitch2
-    regC = PrgSwitch1
-    regE = &HFF
-Else
-    reg8 = PrgSwitch1
-    regA = PrgSwitch2
-    regC = &HFE
-    regE = &HFF
-End If
-SetupBanks
-End Sub
+    
+    swap = False
 
-Public Function MaskBankAddress(bank As Byte)
-If bank >= PrgCount * 2 Then
-Dim i As Byte: i = &HFF
-Do While (bank And i) >= PrgCount * 2
-    i = i \ 2
-Loop
-MaskBankAddress = (bank And i)
-Else
-MaskBankAddress = bank
-End If
-End Function
-'''
+    #MMC3[Mapper #4] infos
+    MMC3_Command = 0# Byte
+    MMC3_PrgAddr= 0# Byte
+    MMC3_ChrAddr= 0# Integer
+    MMC3_IrqVal= 0# Byte
+    MMC3_TmpVal= 0# Byte
+    MMC3_IrqOn= False# Boolean
 
+    def MMC3_HBlank(self, Scanline, two): # As Boolean
+    
+        if Scanline == 0 :
+            self.MMC3_IrqVal = self.MMC3_TmpVal
+            return False
+        
+        elif Scanline > 239:
+            return
+        
+        elif self.MMC3_IrqOn & (two & 0x18):
+            self.MMC3_IrqVal = self.MMC3_IrqVal - 1
+            if (self.MMC3_IrqVal == 0):
+                self.MMC3_IrqVal = self.MMC3_TmpVal
+                return True
+
+    def SetPROM_Banks(self):
+        pass
+
+
+    
 def MaskVROM(page, mask):
     return page and (mask - 1)
 
-'''
-'only switches banks when needed
-'******只有需要时才切换******
-Public Sub SetupBanks()
-
-    reg8 = MaskBankAddress(reg8)
-    regA = MaskBankAddress(regA)
-    regC = MaskBankAddress(regC)
-    regE = MaskBankAddress(regE)
-    
-    MemCopy bank8(0), gameImage(reg8 * &H2000&), &H2000&
-    MemCopy bankA(0), gameImage(regA * &H2000&), &H2000&
-    MemCopy bankC(0), gameImage(regC * &H2000&), &H2000&
-    MemCopy bankE(0), gameImage(regE * &H2000&), &H2000&
-End Sub
 '''
 def Select8KVROM(val1):
     val1 = MaskVROM(val1, ChrCount)
@@ -104,7 +75,7 @@ def Select1KVROM(val1 As Byte, bank As Byte)
         MemCopy VRAM(bank * &H400&), VROM(val1 * &H400&), &H400&
     End Select
 
-
+'''
 
 
 if __name__ == '__main__':

@@ -2,6 +2,8 @@
 
 import time
 from numba import jit
+import numpy as np
+
 import traceback
 
 import keyboard
@@ -24,6 +26,8 @@ from vbfun import MemCopy
 
 from nes import NES
 
+from mmc import MMC
+
 from apu import APU
 from ppu import PPU
 from joypad import JOYPAD
@@ -33,8 +37,8 @@ from joypad import JOYPAD
 
 
 
-class cpu6502(NES):
-    CurrentLine =0 #Long 'Integer
+class cpu6502(MMC,NES):
+    
     AddressMask =0 #Long 'Integer
 
     'Registers & tempregisters'
@@ -81,7 +85,16 @@ class cpu6502(NES):
     maxCycles = 0 # As Long 'max cycles until next scanline
     SmartExec = False # As Boolean
     realframes = 0 # As Long 'actual # of frames rendered
-    
+
+    '''
+    bank0 = np.zeros(2048,np.uint8)#[0]*2048 #As Byte ' RAM            主工作内存
+    bank6 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte ' SaveRAM        记忆内存
+    bank8 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte '8-E are PRG-ROM.主程序
+    bankA = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
+    bankC = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
+    bankE = np.zeros(0x2000,np.uint8)#[0] * 8192 #As Byte
+    '''
+
     bank0 = [0]*2048 #As Byte ' RAM            主工作内存
     bank6 = [0]*8192 #As Byte ' SaveRAM        记忆内存
     bank8 = [0]*8192 #As Byte '8-E are PRG-ROM.主程序
@@ -210,7 +223,7 @@ class cpu6502(NES):
         print "6502 reset:",self.status()
 
     def status(self):
-        return self.Frames,self.PC,self.clockticks6502,self.PPU.Status,self.CurrentLine,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
+        return self.Frames,self.PC,self.clockticks6502,self.PPU.Status,self.PPU.CurrentLine,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
 
     def log(self,*args):
         #print self.debug
@@ -239,10 +252,16 @@ class cpu6502(NES):
             if self.clockticks6502 > self.maxCycles1:
                 #self.log("Normal:",self.status()) ############################
                 
-                self.CurrentLine +=  + 1
+                self.PPU.CurrentLine +=  1
 
-                self.PPU.RenderScanline(self.CurrentLine)
-
+                #if self.debug == False:
+                self.PPU.RenderScanline()
+                    
+                    
+                if NES.Mapper == 4:
+                    if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.Control1) == True :
+                        self.irq6502()
+        
                     
 
 
@@ -252,22 +271,17 @@ class cpu6502(NES):
                         if self.CurrentLine > self.SpriteRAM[0] + h :
                             self.PPU_Status = self.PPU_Status | 64'''
                         
-                if self.CurrentLine >= 240:
+                if self.PPU.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
-                    if self.CurrentLine == 240 :
+                    if self.PPU.CurrentLine == 240 :
                         if self.PPU.Control1 & 0x80:
                             self.nmi6502()
-                            
-                        if self.PPU.render :
-                            pass
-                            self.PPU.blitScreen()
-                            #self.PPU.blitPal()
+
+                        self.PPU.blitFrame()
+                        
                             
                             #realframes = realframes + 1
                         NES.Frames += 1
-                       
-                            
-                        pass
                         'ensure most recent keyboard input'
 
             
@@ -280,13 +294,13 @@ class cpu6502(NES):
                     
                         
                         
-                if self.CurrentLine == 262:
+                if self.PPU.CurrentLine == 262:
                     #self.log("FRAME:",self.status()) ###########################
                     if not self.debug:
                         self.APU.updateSounds()
                     
                     
-                    self.CurrentLine = 0
+                    self.PPU.CurrentLine = 0
                     
                     self.PPU.Status = 0x0
                     self.FrameFlag = True
@@ -899,6 +913,18 @@ class cpu6502(NES):
         #print "nmi=" , self.PC , "[$" , hex(self.PC) , "]"
         self.clockticks6502 = self.clockticks6502 + 7
 
+    def irq6502(self):
+        #' Maskable interrupt
+        if (self.p & 0x4) == 0 :
+            self.Write6502(0x100 + self.S, self.PC // 256)
+            self.S = (self.S - 1) & 0xFF
+            self.Write6502(0x100 + self.S, (self.PC & 0xFF))
+            self.S = (self.S - 1) & 0xFF
+            self.Write6502(0x100 + self.S, self.p)
+            self.S = (self.S - 1) & 0xFF
+            self.p = self.p | 0x4
+            self.PC = self.Read6502(0xFFFE) + (self.Read6502(0xFFFF) * 0x100)
+            self.clockticks6502 = self.clockticks6502 + 7
 
 
 

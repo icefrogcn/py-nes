@@ -9,13 +9,7 @@ import threading
 
 import codecs
 #import turtle
-try:
-    import Tkinter as tkinter
-except:
-    import tkinter
 
-#from PIL import Image,ImageDraw,ImageFont,ImageFilter
-#from PIL import ImageTk
 import cv2
 
 
@@ -29,8 +23,11 @@ import pylab
 #from neshardware import * 
 from deco import *
 from wrfilemod import *
+from vbfun import MemCopy
 
 from nes import NES
+from pal import BGRpal
+from ppu import PatternTableArr
 
 nesROMdata =[]
 i16K_ROM_NUMBER = 0
@@ -45,6 +42,9 @@ def rom_ok(data):
         return False
 
 class nesROM(NES):
+    HEADER_SIZE = 16
+    ROMCtrl = 0
+    ROMCtrl2 = 0
     PrgCount = 0 # As Byte
     PrgCount2 = 0 # As Long
     ChrCount = 0 # As Byte,
@@ -73,8 +73,6 @@ class nesROM(NES):
             return False
             
 
-        ROMCtrl=0
-        ROMCtrl2 =0
         '''Erase VRAM: Erase VROM: Erase gameImage: Erase bank8: Erase bankA
         Erase bankC: Erase bankE: Erase bank0: Erase bank6'''
 
@@ -87,19 +85,21 @@ class nesROM(NES):
 
     
         self.PrgCount = self.GetPROM_SIZE(); self.PrgCount2 = self.PrgCount      #'16kB ROM banks 的数量
+        print "[ " , self.PrgCount , " ] 16kB ROM Bank(s)"
+        self.SetPROM()
 
         self.ChrCount = self.GetVROM_SIZE(); self.ChrCount2 = self.ChrCount      #'8kB VROM banks 的数量
-        print "[ " , self.PrgCount , " ] 16kB ROM Bank(s)"
         print "[ " , self.ChrCount , " ] 8kB CHR Bank(s)"
+        self.SetVROM()
     
         self.ROMCtrl = self.data[6]
-        print "[ " , ROMCtrl , " ] ROM Control Byte #1"
+        print "[ " , self.ROMCtrl , " ] ROM Control Byte #1"
 
         self.ROMCtrl2 = self.data[7]
-        print "[ " , ROMCtrl2 , " ] ROM Control Byte #2"
+        print "[ " , self.ROMCtrl2 , " ] ROM Control Byte #2"
     
         '****计算Mapper类型****'
-        self.Mapper = (self.ROMCtrl & 0xF0) // 16
+        self.Mapper = (self.ROMCtrl & 0xF0) >> 4
         self.Mapper = self.Mapper + self.ROMCtrl2
         print "[ " , self.Mapper , " ] Mapper"
         NES.Mapper = self.Mapper
@@ -113,14 +113,14 @@ class nesROM(NES):
         VROM_4K_SIZE = self.GetVROM_SIZE() * 2
         VROM_8K_SIZE = self.GetVROM_SIZE()
     
-        self.Trainer = ROMCtrl & 0x4
-        self.Mirroring = ROMCtrl & 0x1
-        self.FourScreen = ROMCtrl & 0x8
+        self.Trainer = self.ROMCtrl & 0x4
+        self.Mirroring = self.ROMCtrl & 0x1
+        self.FourScreen = self.ROMCtrl & 0x8
         self.UsesSRAM = True if self.ROMCtrl & 0x2 else False
 
-        NES.Trainer = ROMCtrl & 0x4
-        NES.Mirroring = ROMCtrl & 0x1
-        NES.FourScreen = ROMCtrl & 0x8
+        NES.Trainer = self.ROMCtrl & 0x4
+        NES.Mirroring = self.ROMCtrl & 0x1
+        NES.FourScreen = self.ROMCtrl & 0x8
         
         NES.UsesSRAM = True if self.ROMCtrl & 0x2 else False
 
@@ -129,7 +129,8 @@ class nesROM(NES):
     
         #Dim PrgMark As Long
         self.PrgMark = (self.PrgCount2 * 0x4000) - 1
-        #self.MirrorXor = 0x800 if self.Mirroring == 1 else 0x400
+        #self.PrgMark = (self.PrgCount2 * 0x4000) - 1
+        self.MirrorXor = 0x800 if self.Mirroring == 1 else 0x400
 
         NES.MirrorXor = 0x800 if NES.Mirroring == 1 else 0x400
         
@@ -142,6 +143,19 @@ class nesROM(NES):
 
     def GetVROM_SIZE(self):
         return self.data[0x5]
+
+    def SetPROM(self):
+        '****读取PRG数据****'
+        self.PROM = self.data[self.HEADER_SIZE: self.PrgCount2 * 0x4000 + self.HEADER_SIZE]
+
+    def SetVROM(self):
+        '****读取CHR数据****'
+        self.PrgMark = 0x4000 * self.PrgCount2 + self.HEADER_SIZE
+        self.VROM =[0] * (self.ChrCount2 * 0x2000)
+        if self.ChrCount2:
+            #self.VROM = self.data[self.PrgMark: self.ChrCount2 * 0x2000 + self.HEADER_SIZE]
+            MemCopy (self.VROM,0, self.data, self.PrgMark, self.ChrCount2 * 0x2000)
+            self.AndIt = self.ChrCount - 1
 
 
 def calculate_Mapper(NESHEADER):
@@ -178,20 +192,8 @@ def Tile_(data):
     return Tile
 
 #@deco
-def Tile_mix(data1,data2):
-    Tile_mix = []
-    for i,row in enumerate(data2):
-        Tile_row = ''
-        for j,bit in enumerate(list(row)):
-            pass
-            Tile_row += str(int(bit)*2 + int(data1[i][j:j+1]))
-        #print i,row,data1[i],Tile_row
-        Tile_mix.append(Tile_row)
-    return Tile_mix
-
-#@deco
-def get_Tile(block_num,offset):
-    return Tile_mix(Tile_(VROM[block_num][offset:(offset+0x8)]),Tile_(VROM[block_num][(offset+0x8):(offset+0x10)]))
+def getTile(block_num,offset):
+    return VROM[block_num][offset:(offset+0x10)]
 
 def HEX_RGB(value):
     digit = int(filter(lambda x:x in '0123456789ABCDEF',value),16)
@@ -240,7 +242,7 @@ def Tiles_array(Tiles):
     for y,Tile in enumerate(Tiles):
         Tile_arr = []
         for x,c in enumerate(Tile):
-            Tile_arr.append(CPal[int(c)])
+            Tile_arr.append(BGRpal[int(c)])
         Tiles_arr.append(Tile_arr)
     return np.array(Tiles_arr,np.uint8)
 
@@ -291,7 +293,7 @@ def rndColor():
 
 if __name__ == '__main__':
     #print NES.CPal
-    CPal = [[item >> 16, item >> 8 & 0xFF ,item & 0xFF] for item in NES.CPal]
+    #CPal = [[item >> 16, item >> 8 & 0xFF ,item & 0xFF] for item in NES.CPal]
     #print CPal
 
     nesROMdata = read_file_to_array('roms//mario.nes')
@@ -315,12 +317,12 @@ if __name__ == '__main__':
     print
     A[0] = B[0]
     print A
-    for i in range(1000):
+    for i in range(10):
         A = np.random.randint(0,256,size = (height,width,3),dtype=np.uint8)
         #print A
-        cv2.imshow("BGR", A)
-        cv2.waitKey(1)
-    cv2.destroyAllWindows()
+        #cv2.imshow("BGR", A)
+        #cv2.waitKey(1)
+    
     
     if rom_ok(nes_head):
         i16K_ROM_NUMBER = get_16k_rom_num(nes_head)
@@ -340,15 +342,16 @@ if __name__ == '__main__':
         fps_t = ''
         s_t = 0
         
-        while 0:
+        for i in range(1):
             fps += 1
             img=np.zeros([height * ratio,width * ratio,3],np.uint8)
-            print img[0][0]
+            #print img[0][0]
             #print type(img)
             for i in xrange(0,len(VROM[0]),0x10):
                 pass
-                print get_Tile(0,i)
-                A = Tiles_array(get_Tile(0,i))
+                #print get_Tile(0,i)
+                #A = Tiles_array(get_Tile(0,i))
+                A = Tiles_array(PatternTableArr(getTile(0,i))[0])
                 print A
                 B = np.random.randint(0,256,size = (len(A[0]),len(A),3),dtype=np.uint8)
                 print B
@@ -359,7 +362,7 @@ if __name__ == '__main__':
 
                 if i>= 0x10*16:
                     pass
-                    #break
+                    break
                 #cv2.imshow("BGR", A)
             if time.time() - s_t >= 2:
                 fps_t = 'fps:' + str(fps/(time.time() - s_t))
@@ -373,6 +376,7 @@ if __name__ == '__main__':
             #break
         #tk.mainloop()
 
+    cv2.destroyAllWindows()
 
 
         

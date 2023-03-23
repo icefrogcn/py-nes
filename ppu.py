@@ -6,28 +6,54 @@ import traceback
 
 import cv2
 import numpy as np
+import numba as nb
 from numba import jit
 
 from nes import NES
 from pal import BGRpal
 #PPU
 
+# PPU Control Register #1	PPU #0 $2000
+PPU_VBLANK_BIT	=	0x80
+PPU_SPHIT_BIT	=	0x40		#
+PPU_SP16_BIT	=	0x20
+PPU_BGTBL_BIT	=	0x10
+PPU_SPTBL_BIT	=	0x08
+PPU_INC32_BIT	=	0x04
+PPU_NAMETBL_BIT	=	0x03
+
+# PPU Control Register #2	PPU #1 $2001
+PPU_BGCOLOR_BIT	=	0xE0
+PPU_SPDISP_BIT	=	0x10
+PPU_BGDISP_BIT	=	0x08
+PPU_SPCLIP_BIT	=	0x04
+PPU_BGCLIP_BIT	=	0x02
+PPU_COLORMODE_BIT =	0x01
+
+# PPU Status Register		PPU #2 $2002
+PPU_VBLANK_FLAG	=	0x80
+PPU_SPHIT_FLAG	=	0x40
+PPU_SPMAX_FLAG	=	0x20
+PPU_WENABLE_FLAG=	0x10
+
+# SPRITE Attribute
+SP_VMIRROR_BIT	=	0x80
+SP_HMIRROR_BIT	=	0x40
+SP_PRIORITY_BIT	=	0x20
+SP_COLOR_BIT	=	0x03
+
+
 class PPU(NES):
 
-# PPU Control Register #1	PPU #0
-    PPU_VBLANK_BIT	=	0x80
-    PPU_SPHIT_BIT	=	0x40		#
-    PPU_SP16_BIT	=	0x20
-    PPU_BGTBL_BIT	=	0x10
-    PPU_SPTBL_BIT	=	0x08
-    PPU_INC32_BIT	=	0x04
-    PPU_NAMETBL_BIT	=	0x03
-
+    CurrentLine =0 #Long 'Integer
 
     NameTable = 0
 
         
     def __init__(self,debug = False):
+
+        self.debug = debug
+        
         #6502中没有寄存器，故使用工作内存地址作为寄存器
         self.PPU_Write = {
             0x2000:self.PPU_Control1_W,
@@ -45,10 +71,14 @@ class PPU(NES):
             0x2005:self.PPU7_Temp,
             0x2006:self.PPU7_Temp,
             
-            0x2002:self.PPU_Control1_R,
-            0x2004:self.SPR_RAM_R,
-            0x2007:self.VRAM_R,
+            0x2002:self.PPU_Status_R,
+            0x2004:self.SPRRAM_2004_R,
+            0x2007:self.VRAM_2007_R,
                 }
+
+        self.render = False
+
+        self.tilebased = False
 
     def pPPUinit(self):
         self.Control1 = 0 # $2000
@@ -63,23 +93,24 @@ class PPU(NES):
         self.HScroll = 0
         self.vScroll = 0
         #self.MirrorXor = 0
-
-        self.render = True
-
-        self.tilebased = False
+        self.sp_h = 0
+        
         
         self.EmphVal = 0   #???????Color
         
-        self.VRAM = [0] * 0x4000 #3FFF #As Byte, VROM() As Byte  ' Video RAM
-        #self.VRAM = np.array([0] * 0x4000, np.uint8) #3FFF #As Byte, VROM() As Byte  ' Video RAM
-        self.SpriteRAM = [0] * 0x100 #FF# As Byte      '活动块存储器，单独的一块，不占内存
-
-
-        self.width,self.height = 263,241
-
-        self.blankPixel = np.array([16,0,0] ,dtype=np.uint8)
+        #self.VRAM = [0] * 0x4000 #3FFF 
+        self.VRAM = np.zeros(0x4000, np.uint8) #3FFF #As Byte, VROM() As Byte  ' Video RAM
+        #self.SpriteRAM = [0] * 0x100 #FF# As Byte     
+        self.SpriteRAM = np.zeros(0x100, np.uint8) #'活动块存储器，单独的一块，不占内存
         
-        self.blankLine = np.array([[16,0,0]] * self.width ,dtype=np.uint8)
+
+        self.width,self.height = 257,241
+
+        self.ScanlineSPHit = np.zeros(257, np.uint8)
+        
+        self.blankPixel = 0 #np.array([16,16,16] ,dtype=np.uint8)
+        
+        self.blankLine = np.array([self.blankPixel] * self.width ,dtype=np.uint8)
         #self.blankLine = [[0,0,16]] * self.height 
         
         'DF: array to draw each frame to'
@@ -89,52 +120,63 @@ class PPU(NES):
         
         self.vBuffer = np.array([self.blankLine] * self.height ,dtype=np.uint8)
         
+
+
         
-        #print self.blankLine
-
-        self.vBuffer16 = [0]*(256 * 240 - 1) #As Integer
-        self.vBuffer32 = [0]*(256 * 240 - 1) #As Long
-
-        #self.tLook = NES.fillTLook()#[0]*(65536 * 8 - 1) #As Byte
-
         self.PatternTable = 0
 
         #self.Pal = np.array([[item >> 16, item >> 8 & 0xFF ,item & 0xFF] for item in NES.CPal])
         self.Pal = BGRpal
 
-        self.Palettes = [0] * 0x20
+        self.Palettes = np.zeros(0x20, np.uint8)#[0] * 0x20
         self.BGPAL = [0] * 0x10
         self.SPRPAL = [0] * 0x10
         
         
-        if self.render:
+        if self.render and self.debug == False:
             cv2.namedWindow('Main', cv2.WINDOW_NORMAL)
-        cv2.namedWindow('Pal', cv2.WINDOW_NORMAL)
-        
+            cv2.namedWindow('Pal', cv2.WINDOW_NORMAL)
+            
+        else:
+            cv2.namedWindow('Pal', cv2.WINDOW_NORMAL)
+            cv2.namedWindow('PatternTable0', cv2.WINDOW_NORMAL)
+            cv2.namedWindow('SC_TEST', cv2.WINDOW_NORMAL)
+        #cv2.namedWindow('PatternTable2', cv2.WINDOW_NORMAL)
+        #cv2.namedWindow('PatternTable3', cv2.WINDOW_NORMAL)
+
+    def ShutDown(self):
+        if self.render:
+            cv2.destroyAllWindows()
+            
     def PPU7_Temp(self):
         return 0xFF
         
-    def PPU_Control1_R(self):
+    def PPU_Status_R(self):
         ret = self.Status
         self.AddressIsHi = True
         self.ScrollToggle = 0
         self.Status = self.Status & 0x3F
         return ret #PPU_Status = 0
 
-    def SPR_RAM_R(self):
+    def SPRRAM_2004_R(self):
         print "Read SpiritRAM "
         ret = self.SpriteRAM(self.SpriteAddress)
         self.SpriteAddress = (self.SpriteAddress + 1) #& 0xFF
         return ret
 
-    def VRAM_R(self):
+    def VRAM_2007_R(self):
         #print "Read PPU MMC",hex(self.Address)
         #if self.Mapper == 9 or self.Mapper == 10:
             #print "Mapper 9 - 10"
+        self.Address &= 0x3FFF
+        mmc_info = 0
+        if(self.Address >= 0x3000):
+            if self.Address >= 0x3F00:
+                mmc_info = self.Palettes[self.Address & 0x1F]
+        
+        #mmc_info = self.VRAM[self.Address & 0x3F1F - 1] if (self.Address >= 0x3F20 and self.Address <= 0x3FFF) else self.VRAM[self.Address - 1]
 
-        mmc_info = self.VRAM[self.Address & 0x3F1F - 1] if (self.Address >= 0x3F20 and self.Address <= 0x3FFF) else self.VRAM[self.Address - 1]
-
-        self.Address +=  32 if (self.Control1 & 0x4) else 1
+        self.Address +=  32 if (self.Control1 & PPU_INC32_BIT) else 1
         
         #print "Read PPU addr",mmc_info,self.Address
         return mmc_info
@@ -166,13 +208,16 @@ class PPU(NES):
             self.Control2 = value
             #print "Write PPU crl2"
             self.EmphVal = (value & 0xE0) * 2
+            
         elif addr == 0x2003:
             #print "Write SpriteAddress"
             self.SpriteAddress = value
+            
         elif addr == 0x2004:
             #print "Write SpriteRAM"
             self.SpriteRAM[self.SpriteAddress] = value
-            self.SpriteAddress = (self.SpriteAddress + 1) #And 0xFF
+            self.SpriteAddress = (self.SpriteAddress + 1) & 0xFF
+            
         elif addr == 0x2005:
             #print "Write PPU Scroll Register(W2)"
             if self.AddressIsHi :
@@ -181,6 +226,7 @@ class PPU(NES):
             else:
                 self.vScroll = value
                 self.AddressIsHi = 1
+                
         elif addr == 0x2006:
             if self.AddressIsHi :
                 self.AddressHi = value * 0x100
@@ -188,6 +234,7 @@ class PPU(NES):
             else:
                 self.Address = self.AddressHi + value
                 self.AddressIsHi = 1
+                
         elif addr == 0x2007:
             self.Address = self.Address & 0x3FFF
             '''if NES.Mapper == 9 or NES.Mapper == 10 :
@@ -215,71 +262,542 @@ class PPU(NES):
                     self.VRAM[self.Address ^ self.MirrorXor] = value
                 self.VRAM[self.Address] = value
                 
-            if (self.Control1 & 0x4) :
+            if (self.Control1 & PPU_INC32_BIT) :
                 self.Address = self.Address + 32
             else:
                 self.Address = self.Address + 1
                 
-    def RenderScanline(self,Scanline):
+    def RenderScanline(self):
 
-        self.Scanline = Scanline
+        if self.CurrentLine > 239:return
         
-        if Scanline > 239:return
-        
-        if Scanline < 8 :
+        if self.CurrentLine < 8 :
             self.Status = self.Status & 0x3F
 
-        if Scanline == 239 :
-            self.Status = self.Status | 0x80
+        if self.CurrentLine == 239 :
+            self.Status = self.Status | PPU_VBLANK_FLAG
 
-        if not self.render:
-            if self.Control2 & 16 == 0 :return
-            if self.Status & 64 == 0 :return
-            if Scanline > self.SpriteRAM[0] + 8:
-                self.Status = self.Status | 64
+        self.ScanlineSPHit[self.CurrentLine] =  1 if self.Status & PPU_SPHIT_FLAG else 0
+        
+        if self.render == False:
+            if self.Control2 & PPU_SPDISP_BIT == 0 :return
+            if self.Status & PPU_SPHIT_FLAG == 0 :return
+            if self.CurrentLine > self.SpriteRAM[0] + 8:
+                self.Status = self.Status | PPU_SPHIT_FLAG
             return
 
+        '''self.sp_h = 16 if self.Control1 & PPU_SP16_BIT else 8
+
+        
         if self.tilebased:
-            h = 16 if self.Control1 & 0x20 else 8
-            if self.Status & 0x40 == 0:
-                if Scanline > self.SpriteRAM[0] + h :
-                    self.Status = self.Status | 64
-            if Scanline == 1:
-                self.vBuffer[Scanline] = self.blankLine
+            if self.Status & PPU_SPHIT_FLAG == 0:
+                if self.CurrentLine > self.SpriteRAM[0] + self.sp_h :
+                    self.Status = self.Status | PPU_SPHIT_FLAG
+            if self.CurrentLine == 1:
+                self.vBuffer[self.CurrentLine] = self.blankLine
                 self.DrawSprites(True)
                 
-            if  Scanline == 239:
+            if self.CurrentLine == 239:
                 pass
                 self.DrawSprites(False)
         else:
-            #sc = Scanline * 0x100
-            self.vBuffer[Scanline] = self.blankLine
+            self.vBuffer[self.CurrentLine] = self.blankLine
             #'draw background sprites
-            self.RenderSprites(Scanline, True)
-
-        
-        #draw background
-
-        if Scanline < 240 - self.vScroll :
             pass
+            #self.RenderSprites(True)
+
+
+        #draw background
+        
+        if self.CurrentLine < 240 - self.vScroll :
+            pass
+            #print "400",self.CurrentLine
             #self.NameTable = 0x2000 + (0x400 * (self.Control1 & 0b11))
-            self.RenderScanlinePixel(0)
             #self.NameTable = 0x2000 + (0x400 * (self.Control1 & 0b11)) ^ 0x400
-            self.RenderScanlinePixel(0x400)
+            #self.RenderScanlinePixel(0)
+            #self.RenderScanlinePixel(0x400)
+
         else:
             pass
-            self.RenderScanlinePixel(0x800)
-            self.RenderScanlinePixel(0xC00)
+            #print "C00",self.CurrentLine
+            #self.RenderScanlinePixel(0x800)
+            #self.RenderScanlinePixel(0xC00)
+
 
         if not self.tilebased :#'draw foreground sprites
             pass
-            self.RenderSprites(Scanline, False)
+            self.RenderSprites(False)
+'''
 
 
+    def RenderScanlinePixel(self, NameTableAddress):
+        if self.Control2 & PPU_BGDISP_BIT == 0 :return
+            
+        sc = self.CurrentLine + self.vScroll
+        
+        TileRow = (sc // 8) % 30
+        TileYOffset = sc & 7
+
+        
+        NameTable = 0x2000 + (0x400 * (self.Control1 & PPU_NAMETBL_BIT)) ^ NameTableAddress
+        
+        self.PatternTable = (self.Control1 & PPU_BGTBL_BIT) << 8 #* 0x100
+        
+        AttributeTable = NameTable + 0x3C0
+
+
+        for TileCounter in range(self.HScroll / 8, 32):
+            TileIndex = self.VRAM[NameTable + TileCounter + TileRow * 32]
+            '''If Mapper = 9 Or Mapper = 10 Then
+                If PatternTable = &H0 Then
+                    MMC2_latch TileIndex, False
+                ElseIf PatternTable = &H1000& Then
+                    MMC2_latch TileIndex, True
+                End If
+            End If'''
+            Byte1 = self.VRAM[self.PatternTable + TileIndex * 16 + TileYOffset]  #-1
+            Byte2 = self.VRAM[self.PatternTable + TileIndex * 16 + 8 + TileYOffset] #-1
+            
+            c1 = ((Byte1>>1)&0x55)|(Byte2&0xAA)
+            c2 = (Byte1&0x55)|((Byte2<<1)&0xAA)
+            '''if True:#c1 or c2:
+                #print hex(c1),hex(c2)
+                self.vBuffer[self.CurrentLine][0 + TileCounter * 8] = self.Pal[self.BGPAL[(c1>>6)]]
+                self.vBuffer[self.CurrentLine][4 + TileCounter * 8] = self.Pal[self.BGPAL[(c1>>2)&3]]
+                self.vBuffer[self.CurrentLine][1 + TileCounter * 8] = self.Pal[self.BGPAL[(c2>>6)]]
+                self.vBuffer[self.CurrentLine][5 + TileCounter * 8] = self.Pal[self.BGPAL[(c2>>2)&3]]
+                self.vBuffer[self.CurrentLine][2 + TileCounter * 8] = self.Pal[self.BGPAL[(c1>>4)&3]]
+                self.vBuffer[self.CurrentLine][6 + TileCounter * 8] = self.Pal[self.BGPAL[c1&3]]
+                self.vBuffer[self.CurrentLine][3 + TileCounter * 8] = self.Pal[self.BGPAL[(c2>>4)&3]]
+                self.vBuffer[self.CurrentLine][7 + TileCounter * 8] = self.Pal[self.BGPAL[c2&3]]'''
+            
+            
+            X = TileCounter * 8 - self.HScroll + 7
+            m = X if X < 7 else 7
+            X = X + self.CurrentLine * 256
+            LookUp = self.VRAM[AttributeTable + TileCounter / 4 + (TileRow / 4) * 0x8]
+            
+            Tiletemp = (TileCounter & 2) | (TileRow & 2) * 2
+            if Tiletemp == 0:
+                    addToCol = LookUp * 4 & 12
+            elif Tiletemp == 2:
+                    addToCol = LookUp & 12
+            elif Tiletemp == 4:
+                    addToCol = LookUp / 4 & 12
+            elif Tiletemp == 6:
+                    addToCol = LookUp / 16 & 12
+            
+            a = (Byte1 * 2048) + (Byte2 * 8)
+                
+            #for pixel in range(m,0,-1): # = m To 0 Step -1
+            for pixel in range(m + 1): # = m To 0 Step -1
+                try:
+                    Color = NES.tLook[a + pixel]
+                except:
+                    print a,m,pixel,a + pixel
+                if Color:# addToCol :
+                    pass
+                    #self.vBuffer[Scanline][8 - pixel + TileCounter * 8] = self.Pal[Color | addToCol]
+                    self.vBuffer[self.CurrentLine][8 - pixel + TileCounter * 8] = Color | addToCol
+
+
+        
+
+                    
+    def RenderSprites(self,topLayer):
+        
+        if self.Control2 & (PPU_SPDISP_BIT|PPU_BGDISP_BIT) == 0 :return
+        
+        TileRow = self.CurrentLine / 8
+        TileYOffset = self.CurrentLine & 0b111
+        
+        
+        self.PatternTable = 0x1000 if self.Control1 & PPU_SPTBL_BIT and self.sp_h == 8 else 0
+
+        minX = 0 if self.Control2 & 0x20 else 8
+
+        i = self.CurrentLine << 16 #* 0x100
+
+        for spr in range(63,-1,-1):
+            SpriteAddr = spr << 2
+            y1 = self.SpriteRAM[SpriteAddr] + 1
+            
+            if self.CurrentLine - self.sp_h < y1 <= self.CurrentLine  :  #!!!!!!!!!!!!!!!!!!!!!!!!
+                attr = self.SpriteRAM[SpriteAddr + 2]
+                if (attr & 32) == 0 ^ topLayer:
+                    X1 = self.SpriteRAM[SpriteAddr + 3]
+                    if X1 >= minX:
+                        if X1 < 248:
+                            addToCol = 0x10 + (attr & 3) * 4
+                    
+                            TileIndex = self.SpriteRAM[SpriteAddr + 1]
+
+                            #Mapper = 9 Or Mapper = 10
+                            
+                            if self.sp_h == 16 :
+                                if TileIndex & 1 :
+                                    self.PatternTable = 0x1000
+                                    TileIndex = TileIndex ^ 1
+                                else:
+                                    self.PatternTable = 0
+                            if attr & 128 :# 'vertical flip
+                                v = y1 - self.CurrentLine - 1
+                            else:
+                                v = self.CurrentLine - y1
+
+                            v = v & self.sp_h - 1 #****************** maybe debug
+                            if v >= 8:v = v + 8
+                            Byte1 = self.VRAM[self.PatternTable + (TileIndex * 16) + v]
+                            Byte2 = self.VRAM[self.PatternTable + (TileIndex * 16) + 8 + v]
+                            #c1 = ((Byte1>>1)&0x55)|(Byte2&0xAA)
+                            #c2 = (Byte1&0x55)|((Byte2<<1)&0xAA)
+            
+                            #real sprite 0 detection
+                            if spr == 0 and (self.Status & 64) == 0:
+                                if attr & 64 : # 'horizontal flip
+                                    '''self.vBuffer[self.CurrentLine][0 + X1] = self.Pal[(c1>>6)]
+                                    self.vBuffer[self.CurrentLine][4 + X1] = self.Pal[(c1>>2)&3]
+                                    self.vBuffer[self.CurrentLine][1 + X1] = self.Pal[(c2>>6)]
+                                    self.vBuffer[self.CurrentLine][5 + X1] = self.Pal[(c2>>2)&3]
+                                    self.vBuffer[self.CurrentLine][2 + X1] = self.Pal[(c1>>4)&3]
+                                    self.vBuffer[self.CurrentLine][6 + X1] = self.Pal[c1&3]
+                                    self.vBuffer[self.CurrentLine][3 + X1] = self.Pal[(c2>>4)&3]
+                                    self.vBuffer[self.CurrentLine][7 + X1] = self.Pal[c2&3]'''
+                                    #a = i + X1
+                                    for X in range(8):#= 0 To 7 #'draw yellow block for now.
+                                        Color = 1 if Byte1 & NES.pow2[X] else 0
+                                        if Byte2 & NES.pow2[X] : Color += 2
+                                        if Color:
+                                            if (self.vBuffer[self.CurrentLine][X1 + X] == self.blankPixel).all():
+                                                pass
+                                            else:
+                                                self.Status = self.Status | 64
+                                            #if self.vBuffer[Scanline][a + X] <> 16: self.Status = self.Status | 64
+                                            self.vBuffer[self.CurrentLine][X1 + X] =  Color | addToCol
+                                else:
+                                    '''self.vBuffer[self.CurrentLine][0 - X1] = self.Pal[(c1>>6)]
+                                    self.vBuffer[self.CurrentLine][4 - X1] = self.Pal[(c1>>2)&3]
+                                    self.vBuffer[self.CurrentLine][1 - X1] = self.Pal[(c2>>6)]
+                                    self.vBuffer[self.CurrentLine][5 - X1] = self.Pal[(c2>>2)&3]
+                                    self.vBuffer[self.CurrentLine][2 - X1] = self.Pal[(c1>>4)&3]
+                                    self.vBuffer[self.CurrentLine][6 - X1] = self.Pal[c1&3]
+                                    self.vBuffer[self.CurrentLine][3 - X1] = self.Pal[(c2>>4)&3]
+                                    self.vBuffer[self.CurrentLine][7 - X1] = self.Pal[c2&3]'''
+                                    a = i + X1 + 7
+                                    for X  in range(7,-1,-1):#= 0 To 7 #'draw yellow block for now.
+                                        Color = 1 if Byte1 & NES.pow2[X] else 0
+                                        if Byte2 & NES.pow2[X] : Color = Color + 2
+                                        if addToCol:
+                                            #print self.vBuffer[Scanline][X1 - X]
+                                            if not (self.vBuffer[self.CurrentLine][X1 - X] == self.blankPixel).all():
+                                                self.Status = self.Status | 64
+                                            #if self.vBuffer[Scanline][a + X] <> 16: self.Status = self.Status | 64
+                                            self.vBuffer[self.CurrentLine][X1 - X] =  Color | addToCol
+                            else:
+                                if attr & 64 : # 'horizontal flip
+                                    '''self.vBuffer[self.CurrentLine][0 + X1] = self.Pal[(c1>>6)]
+                                    self.vBuffer[self.CurrentLine][4 + X1] = self.Pal[(c1>>2)&3]
+                                    self.vBuffer[self.CurrentLine][1 + X1] = self.Pal[(c2>>6)]
+                                    self.vBuffer[self.CurrentLine][5 + X1] = self.Pal[(c2>>2)&3]
+                                    self.vBuffer[self.CurrentLine][2 + X1] = self.Pal[(c1>>4)&3]
+                                    self.vBuffer[self.CurrentLine][6 + X1] = self.Pal[c1&3]
+                                    self.vBuffer[self.CurrentLine][3 + X1] = self.Pal[(c2>>4)&3]
+                                    self.vBuffer[self.CurrentLine][7 + X1] = self.Pal[c2&3]'''
+                                    a = i + X1
+                                    for X in range(8):#= 0 To 7 #'draw yellow block for now.
+                                        Color = 1 if Byte1 & NES.pow2[X] else 0
+                                        if Byte2 & NES.pow2[X] : Color = Color + 2
+                                        if addToCol:
+                                            self.vBuffer[self.CurrentLine][X1 + X] =  Color | addToCol
+                                else:
+                                    
+                                    a = i + X1 + 7
+                                    for X  in range(7,-1,-1):#= 0 To 7 #'draw yellow block for now.
+                                        Color = 1 if Byte1 & NES.pow2[X] else 0
+                                        if Byte2 & NES.pow2[X] : Color = Color + 2
+                                        if addToCol:
+                                            self.vBuffer[self.CurrentLine][X1 - X] =  Color | addToCol                             
+                                    
+                        
+                        if spr == 0 :
+                            if self.CurrentLine == y1 + self.sp_h - 1 :
+                                self.Status = self.Status ^ 0x40 #'claim we hit sprite #0
+
+
+
+
+    def PatternTables(self):
+        #if self.Control2 & (PPU_SPDISP_BIT|PPU_BGDISP_BIT) == 0 :return
+
+        PatternTablesAddress,PatternTablesSize = (0x1000,0x1000) if self.Control1 & PPU_SPTBL_BIT else (0,0x1000)
+        
+        return PatternTableArr(self.VRAM[PatternTablesAddress:PatternTablesAddress + 0x1000])
+
+        '''img = np.zeros((8,256,3),np.uint8)
+        for y in range(8):
+            for index in range(32):
+                for x in range(8):
+                    img[y][index * 8 + x] = self.Pal[PatternTable[index][y][x]]
+                #print img_line[y]
+
+        #print img[0]
+        return img#np.array(img,np.uint8)'''
+
+    def NameTables_data(self,offset):
+        NameTablesAddress = 0x2000 + offset * 0x400
+        NameTablesSize = 0x3C0
+        
+        return self.VRAM[NameTablesAddress: NameTablesAddress + NameTablesSize]
+    
+           
+        
+    def NewRenderScanlinePixel(self, NameTableAddress):
+        if self.Control2 & PPU_BGDISP_BIT == 0 :return
+        if self.CurrentLine >240:return
+        sc = self.CurrentLine + self.vScroll
+        #sc = 1  + self.vScroll
+
+        #NameTableAddress = 0x400 if 1 < 240 - self.vScroll else 0x800
+        
+        #TileRow = (sc // 8) % 30
+        #TileYOffset = sc & 7
+
+        NameTable = 0x2000 + (0x400 * (self.Control1 & PPU_NAMETBL_BIT)) ^ NameTableAddress
+        
+        PatternTable = (self.Control1 & PPU_BGTBL_BIT) << 8 #* 0x100
+        
+        AttributeTable = NameTable + 0x3C0
+
+        lineArry = RenderScanlineArray(self.VRAM, NameTable, PatternTable, sc)
+        #print lineArry.shape
+        #print lineArry[TileYOffset]
+        self.vBuffer[self.CurrentLine:self.CurrentLine+8] = lineArry[0:8]
+        #self.lineBuffer = lineArry
+        
+    def blitFrame(self):
+        #vBuffer = self.RenderBG()
+        if self.Control2 & (PPU_SPDISP_BIT|PPU_BGDISP_BIT) == 0 :return
+        
+        self.sp16 = 1 if self.Control1 & PPU_SP16_BIT else 0
+        
+        self.RenderBG()
+
+        self.RenderSprites()
+        
+        self.FrameBuffer = paintBuffer(self.FrameBuffer,self.Pal,self.Palettes)
+        
+        if self.debug == False and self.render:
+            pass
+            self.blitScreen()
+            self.blitPal()
+        else:
+            self.blitPatternTable()
+            self.blitPal()
+
+    def RenderSprites(self):
+        #PatternTablesAddress = 0x1000 if self.Control1 & PPU_SPTBL_BIT and self.sp16 else 0
+        PatternTablesAddress,PatternTablesSize = (0x1000,0x1000) if self.Control1 & PPU_SPTBL_BIT else (0,0x1000)
+        
+        PatternTable_Array = PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + PatternTablesSize])
+
+        #SPHIT = 1 if self.Status & PPU_SPHIT_FLAG else 0
+        x = self.HScroll if self.HScroll or NES.Mirroring == 0 or NES.FourScreen else 256
+        y = self.vScroll if self.vScroll or NES.Mirroring or NES.FourScreen else 240
+        
+        self.FrameBuffer = RenderSpriteArray(self.SpriteRAM, PatternTable_Array, self.FrameBuffer, self.vScroll, self.HScroll, self.sp16, self.ScanlineSPHit,x,y)
+         
+    
+    def RenderBG(self):
+        
+        #PatternTablesAddress = 0x1000 if self.Control1 & PPU_SPTBL_BIT and self.sp_h == 8 else 0
+
+        PatternTablesAddress = (self.Control1 & PPU_BGTBL_BIT) << 8 #* 0x100
+        
+        PatternTable_Array = PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + 0x1000])
+        #print PatternTable_Array[1]
+        #print self.NameTables_data(0)
+        if NES.Mirroring:
+            self.FrameBuffer = self.RenderNameTableH(PatternTable_Array, 0,1)
+
+        elif NES.Mirroring == 0 :
+            
+            self.FrameBuffer = self.RenderNameTableV(PatternTable_Array, 0,2)
+            
+        elif NES.FourScreen:
+            self.FrameBuffer = self.RenderNameTables(PatternTable_Array, 0,1,2,3)
+        else:
+            self.FrameBuffer = self.RenderNameTables(PatternTable_Array, 0,1,2,3)
+        #self.FrameBuffer = self.RenderNameTables(PatternTable_Array, 0,1,2,3)
+        #FrameBuffer = FrameBuffer[self.vScroll:self.vScroll+240,self.HScroll:self.HScroll + 256]
+        #print self.Palettes
+        #return FrameBuffer
+
+    
+    def RenderNameTableH(self,PatternTables,nt0,nt1):
+        tempBuffer0 = AttributeTableArr(self.RenderAttributeTables(nt0), NameTableArr(self.NameTables_data(nt0),PatternTables))
+        tempBuffer1 = AttributeTableArr(self.RenderAttributeTables(nt1), NameTableArr(self.NameTables_data(nt1),PatternTables))
+        return np.column_stack((tempBuffer1,tempBuffer0))
+    
+    def RenderNameTableV(self,PatternTables,nt0,nt2):
+        tempBuffer0 = AttributeTableArr(self.RenderAttributeTables(nt0), NameTableArr(self.NameTables_data(nt0),PatternTables))
+        tempBuffer2 = AttributeTableArr(self.RenderAttributeTables(nt2), NameTableArr(self.NameTables_data(nt2),PatternTables))
+        return np.row_stack((tempBuffer2,tempBuffer0))
+    
+    def RenderNameTables(self,PatternTables,nt0,nt1,nt2,nt3):
+        
+        tempBuffer0 = AttributeTableArr(self.RenderAttributeTables(nt0), NameTableArr(self.NameTables_data(nt0),PatternTables))
+        tempBuffer1 = AttributeTableArr(self.RenderAttributeTables(nt1), NameTableArr(self.NameTables_data(nt1),PatternTables))
+        tempBuffer2 = AttributeTableArr(self.RenderAttributeTables(nt2), NameTableArr(self.NameTables_data(nt2),PatternTables))
+        tempBuffer3 = AttributeTableArr(self.RenderAttributeTables(nt3), NameTableArr(self.NameTables_data(nt3),PatternTables))
+
+        return np.row_stack((np.column_stack((tempBuffer3,tempBuffer2)),np.column_stack((tempBuffer1,tempBuffer0))))
+    
+    def RenderAttributeTables(self,offset):
+        AttributeTablesAddress = 0x2000 + (offset * 0x400 + 0x3C0)
+        AttributeTablesSize = 0x40
+        
+        return self.VRAM[AttributeTablesAddress: AttributeTablesAddress + AttributeTablesSize]
+    
+    def blitScreen(self):
+        y = self.vScroll if self.vScroll else 240
+        cv2.imshow("Main", self.FrameBuffer[y:y + 240,self.HScroll:self.HScroll+256])
+        #cv2.imshow("Main", paintBuffer(self.vBuffer,self.Pal,self.Palettes))
+        cv2.waitKey(1)
+
+    def blitPal(self):
+        #cv2.imshow("Pal", np.array([[self.Pal[self.VRAM[i + 0x3F00]] for i in range(0x20)]]))
+        cv2.imshow("Pal", np.array([[self.Pal[i] for i in (self.BGPAL + self.SPRPAL)]]))
+        cv2.waitKey(1)
+
+    def blitPatternTable(self):
+        x = self.HScroll if self.HScroll or NES.Mirroring == 0 or NES.FourScreen else 256
+        y = self.vScroll if self.vScroll or NES.Mirroring or NES.FourScreen else 240
+        cv2.rectangle(self.FrameBuffer, (x,y),(x+256,y + 240),(0,0,255),1)
+        cv2.imshow("PatternTable0", self.FrameBuffer)
+        cv2.waitKey(1)
+
+
+
+@jit
+def RenderScanlineArray(VRAM, NameTable, PatternTable, Scanline):
+    offset = (Scanline - 1)  / 8 * 32
+    NameTableArray = VRAM[NameTable + offset: NameTable + offset + 32]
+    PTArr = PatternTableArr(VRAM[PatternTable: PatternTable + 0x1000])
+    NoAttriArray = NameTableArr(NameTableArray, PTArr)
+    return NoAttriArray
+
+@jit
+def paintBuffer(FrameBuffer,Pal,Palettes):
+    [rows, cols] = FrameBuffer.shape
+    img = np.zeros((rows, cols,3),np.uint8)
+    for i in range(rows):
+        for j in range(cols):
+            img[i, j] = Pal[Palettes[FrameBuffer[i, j]]]
+    return img
+
+#@jit
+def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHIT, x, y):
+    SpritesArray = np.zeros((8,8),np.uint8)
+    for spriteIndex in range(64):
+        spriteOffset =  spriteIndex * 4
+        spriteY = SPRAM[spriteOffset] + y
+        #if spriteY >= 240 - (8 << SP16): continue
+        #spriteY += vScroll if vScroll else 240
+        spriteX = SPRAM[spriteOffset + 3] + x
+        #spriteX += HScroll if vScroll else 256
+
+        SpriteArr = PatternTableArray[SPRAM[spriteOffset + 1]]
+        if SP16:
+            pass
+            SpriteArr1 = PatternTableArray[SPRAM[spriteOffset + 1] - 1 ]
+            SpriteArr = np.row_stack((SpriteArr1,SpriteArr))
+            
+        if SPRAM[spriteOffset + 2] & 0x80:
+            SpriteArr = np.flip(SpriteArr,0)      #FlipV
+            
+        if SPRAM[spriteOffset + 2] & 0x40:
+            SpriteArr = np.flip(SpriteArr,1)      #FlipH'''
+
+
+        
+            
+
+        BGPriority = SPRAM[spriteOffset + 2] & 32
+        if BGPriority: continue
+        
+        if SPRAM[spriteOffset + 2] & 0x3:
+            SpriteArr += (SPRAM[spriteOffset + 2] & 0x3) << 2 
+            
+        spriteW = 8 # if (spriteX + 8 - 256) < 0 else (256 - spriteX)
+        spriteH = SpriteArr.shape[0] #8 << SP16 # if (spriteY + 8 - 240) < 0 else (240 - spriteY)
+        
+        if BG.shape[0] - spriteY > spriteH and BG.shape[1] - spriteX > spriteW :
+            if SPHIT[SPRAM[spriteOffset]] == 0:
+                SpriteArr[SpriteArr > 0] += 0x10
+                BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW][SpriteArr>0] = SpriteArr[SpriteArr>0] #<<1#[0:spriteH,0:spriteW]
+            else:
+                BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW] += SpriteArr #+ 0x10
+        
+    return BG
+
+@jit
+def AttributeTableArr(AttributeTables, FrameBuffer):
+    tempFrame = np.zeros((257, 257),np.uint8)
+    for i in range(len(AttributeTables)):
+        col = i >> 3; row = i & 7
+        if AttributeTables[i] == 0:
+            continue
+        tempFrame[(col << 5)        :(col << 5) + 16 ,  (row << 5)      : (row  << 5) + 16] = (AttributeTables[i] & 0b11) << 2
+        tempFrame[(col << 5) + 16   :(col << 5) + 32 ,  (row << 5)      : (row  << 5) + 16] = (AttributeTables[i] & 0b110000) >> 2
+        tempFrame[(col << 5)        :(col << 5) + 16 ,  (row << 5) + 16 : (row  << 5) + 32] = (AttributeTables[i] & 0b1100)
+        tempFrame[(col << 5) + 16   :(col << 5) + 32 ,  (row << 5) + 16 : (row  << 5) + 32] = (AttributeTables[i] & 0b11000000) >> 4
+
+    
+    return FrameBuffer | tempFrame[0:240,0:256]
+
+
+@jit
+def NameTableArr(NameTables, PatternTables):
+    width = 8 * 32 if len(NameTables) > 0x1f else len(NameTables)  #256
+    height = ((len(NameTables) - 1) / 32 + 1) * 8 #240
+    ntbuffer = np.zeros((height + 1,width + 1), np.uint8)
+    for row in range(width / 8):
+        for col in range(height / 8):
+            if NameTables[col * 32 + row] == 0:
+                continue
+            ntbuffer[col << 3 :(col << 3) + 8 ,row  << 3: (row  << 3) + 8] = PatternTables[NameTables[col * 32 + row]]
+    
+    return ntbuffer[0:height,0:width]
+    
+
+@nb.njit#(nopython = True)
+def PatternTableArr(Pattern_Tables):
+    PatternTable = np.zeros((len(Pattern_Tables)>>4,8,8),np.uint8)
+    bitarr = range(0x7,-1,-1)
+    for TileIndex in range(len(Pattern_Tables)>>4):
+        for TileY in range(8):
+            PatternTable[TileIndex,TileY] = np.array([1 if (Pattern_Tables[(TileIndex << 4) + TileY]) & (2**bit) else 0 for bit in bitarr], np.uint8) + \
+                                            np.array([2 if (Pattern_Tables[(TileIndex << 4) + TileY + 8]) & (2**bit) else 0 for bit in bitarr], np.uint8)
+
+    return PatternTable
+
+@jit
+def byte2bit1(byte):
+    return np.array([1 if (byte) & (2**bit) else 0 for bit in range(0x7,-1,-1)], np.uint8)
+@jit
+def byte2bit2(byte):
+    return  np.array([2 if (byte) & (2**bit) else 0 for bit in range(0x7,-1,-1)], np.uint8)
+            
+
+'''
     def DrawSprites(self,ontop):
-        if self.Control2 & 16 == 0 :return
-        SpritePattern = (self.Control1 & 0x8) * 0x200
-        h = 16 if self.Control1 & 0x20 else 8
+        
+        if self.Control2 & PPU_SPDISP_BIT == 0 :return
+        
+        SpritePattern = (self.Control1 & PPU_SPTBL_BIT) * 0x200
+        
+        h = 16 if self.Control1 & PPU_SP16_BIT else 8
+        
         SpriteAddr = 0
         i,sa = 0,0
         for spr in range(63,-1,-1):
@@ -301,7 +819,7 @@ class PPU(NES):
                         if attrib & 64:
                             Xflag = X
                             i = self.DrawSpritesPixel(i,h,sa,Xflag,Y,palette)
-                            '''for y1 in range(h-1,0,-1):#= h - 1 To 0 Step -1
+                            for y1 in range(h-1,0,-1):#= h - 1 To 0 Step -1
                                 if y1 >= 8 :
                                     Byte1 = VRAM[sa + 8 + y1]
                                     Byte2 = VRAM[sa + 16 + y1]
@@ -316,12 +834,12 @@ class PPU(NES):
                                         #vBuffer(i + X1) = Color | pal
                                         self.vBuffer[Y][X1 + X] = self.Pal[Color | pal]
                                 i = i + 256
-                                if i >= 256 * 240:break'''
+                                if i >= 256 * 240:break
                         else:
                             i += 7
                             Xflag = -X
                             i = self.DrawSpritesPixel(i,h,sa,Xflag,Y,palette)
-                            '''for y1 in range(h-1,0,-1):#= h - 1 To 0 Step -1
+                            for y1 in range(h-1,0,-1):#= h - 1 To 0 Step -1
                                 if y1 >= 8 :
                                     Byte1 = VRAM[sa + 8 + y1]
                                     Byte2 = VRAM[sa + 16 + y1]
@@ -336,7 +854,7 @@ class PPU(NES):
                                         #vBuffer(i + X1) = Color | pal
                                         self.vBuffer[Y][X1 - X] = self.Pal[Color | pal]
                                 i = i + 256
-                                if i >= 256 * 240:break'''
+                                if i >= 256 * 240:break
                     else:
                         if attrib & 64:
                             Xflag = X
@@ -364,275 +882,30 @@ class PPU(NES):
                                 Color = NES.tLook[X1 + a]
                                 if Color:
                                     #vBuffer(i + X1) = Color | pal
-                                    self.vBuffer[Y][X1 + Xflag] = self.Pal[Color | palette]
+                                    self.vBuffer[Y][X1 + Xflag] = self.Pal[self.Palettes[Color | palette]]
                             i += 256
                             if i >= 256 * 240:break
                         return i
 
                 
 
-    def RenderScanlinePixel(self, NameTableAddress):
-        sc = self.Scanline + self.vScroll
-        
-        TileRow = (sc // 8) % 30
-        TileYOffset = sc & 7
+'''
 
-        NameTable = 0x2000 + (0x400 * (self.Control1 & 0b11)) ^ NameTableAddress
-        self.PatternTable = (self.Control1 & 0x10) << 8 #* 0x100
-        AttributeTable = NameTable + 0x3C0
-
-
-        for TileCounter in range(self.HScroll / 8, 32):
-            TileIndex = self.VRAM[NameTable + TileCounter + TileRow * 32]
-            '''If Mapper = 9 Or Mapper = 10 Then
-                If PatternTable = &H0 Then
-                    MMC2_latch TileIndex, False
-                ElseIf PatternTable = &H1000& Then
-                    MMC2_latch TileIndex, True
-                End If
-            End If'''
-            Byte1 = self.VRAM[self.PatternTable + TileIndex * 16 + TileYOffset]
-            Byte2 = self.VRAM[self.PatternTable + TileIndex * 16 + 8 + TileYOffset]
-            
-            c1 = ((Byte1>>1)&0x55)|(Byte2&0xAA)
-            c2 = (Byte1&0x55)|((Byte2<<1)&0xAA)
-            '''if True:#c1 or c2:
-                #print hex(c1),hex(c2)
-                self.vBuffer[self.Scanline][0 + TileCounter * 8] = self.Pal[(c1>>6)]
-                self.vBuffer[self.Scanline][4 + TileCounter * 8] = self.Pal[(c1>>2)&3]
-                self.vBuffer[self.Scanline][1 + TileCounter * 8] = self.Pal[(c2>>6)]
-                self.vBuffer[self.Scanline][5 + TileCounter * 8] = self.Pal[(c2>>2)&3]
-                self.vBuffer[self.Scanline][2 + TileCounter * 8] = self.Pal[(c1>>4)&3]
-                self.vBuffer[self.Scanline][6 + TileCounter * 8] = self.Pal[c1&3]
-                self.vBuffer[self.Scanline][3 + TileCounter * 8] = self.Pal[(c2>>4)&3]
-                self.vBuffer[self.Scanline][7 + TileCounter * 8] = self.Pal[c2&3]'''
-            
-            
-            X = TileCounter * 8 - self.HScroll + 7
-            m = X if X < 7 else 7
-            X = X + self.Scanline * 256
-            LookUp = self.VRAM[AttributeTable + TileCounter / 4 + (TileRow / 4) * 0x8]
-            
-            Tiletemp = (TileCounter & 2) | (TileRow & 2) * 2
-            if Tiletemp == 0:
-                    addToCol = LookUp * 4 & 12
-            elif Tiletemp == 2:
-                    addToCol = LookUp & 12
-            elif Tiletemp == 4:
-                    addToCol = LookUp / 4 & 12
-            elif Tiletemp == 6:
-                    addToCol = LookUp / 16 & 12
-            
-            a = (Byte1 * 2048) + (Byte2 * 8)
-                
-            #for pixel in range(m,0,-1): # = m To 0 Step -1
-            for pixel in range(m + 1): # = m To 0 Step -1
-                try:
-                    Color = NES.tLook[a + pixel]
-                except:
-                    print a,m,pixel,a + pixel
-                if Color :
-                    pass
-                    #self.vBuffer[Scanline][8 - pixel + TileCounter * 8] = self.Pal[Color | addToCol]
-                    self.vBuffer[self.Scanline][8 - pixel + TileCounter * 8] = self.Pal[self.BGPAL[Color | addToCol]]
-
-
-
-                    
-    def RenderSprites(self,Scanline,topLayer):
-        
-        if self.Control2 & 0b00010000 == 0 :return
-        
-        TileRow = Scanline / 8
-        TileYOffset = Scanline & 0b111
-        h = 16 if self.Control1 & 0x20 else 8
-        self.PatternTable = 0x1000 if self.Control1 & 0x8 and h == 8 else 0
-
-        minX = 0 if self.Control2 & 0x20 else 8
-
-        i = Scanline << 16 #* 0x100
-
-        for spr in range(63,-1,-1):
-            SpriteAddr = spr << 2
-            y1 = self.SpriteRAM[SpriteAddr] + 1
-            
-            if Scanline - h < y1 <= Scanline  :
-                attr = self.SpriteRAM[SpriteAddr + 2]
-                if (attr & 32) == 0 ^ topLayer:
-                    X1 = self.SpriteRAM[SpriteAddr + 3]
-                    if X1 >= minX:
-                        if self.render and (X1 < 248):
-                            addToCol = 0x10 + (attr & 3) * 4
-                    
-                            TileIndex = self.SpriteRAM[SpriteAddr + 1]
-
-                            #Mapper = 9 Or Mapper = 10
-                            
-                            if h == 16 :
-                                if TileIndex & 1 :
-                                    self.PatternTable = 0x1000
-                                    TileIndex = TileIndex ^ 1
-                                else:
-                                    self.PatternTable = 0
-                            if attr & 128 :# 'vertical flip
-                                v = y1 - Scanline - 1
-                            else:
-                                v = Scanline - y1
-
-                            v = v & h - 1 #****************** maybe debug
-                            if v >= 8:v = v + 8
-                            Byte1 = self.VRAM[self.PatternTable + (TileIndex * 16) + v]
-                            Byte2 = self.VRAM[self.PatternTable + (TileIndex * 16) + 8 + v]
-                            #c1 = ((Byte1>>1)&0x55)|(Byte2&0xAA)
-                            #c2 = (Byte1&0x55)|((Byte2<<1)&0xAA)
-            
-                            #real sprite 0 detection
-                            if spr == 0 and (self.Status & 64) == 0:
-                                if attr & 64 : # 'horizontal flip
-                                    '''self.vBuffer[self.Scanline][0 + X1] = self.Pal[(c1>>6)]
-                                    self.vBuffer[self.Scanline][4 + X1] = self.Pal[(c1>>2)&3]
-                                    self.vBuffer[self.Scanline][1 + X1] = self.Pal[(c2>>6)]
-                                    self.vBuffer[self.Scanline][5 + X1] = self.Pal[(c2>>2)&3]
-                                    self.vBuffer[self.Scanline][2 + X1] = self.Pal[(c1>>4)&3]
-                                    self.vBuffer[self.Scanline][6 + X1] = self.Pal[c1&3]
-                                    self.vBuffer[self.Scanline][3 + X1] = self.Pal[(c2>>4)&3]
-                                    self.vBuffer[self.Scanline][7 + X1] = self.Pal[c2&3]'''
-                                    #a = i + X1
-                                    for X in range(8):#= 0 To 7 #'draw yellow block for now.
-                                        Color = 1 if Byte1 & NES.pow2[X] else 0
-                                        if Byte2 & NES.pow2[X] : Color = Color + 2
-                                        if Color:
-                                            if (self.vBuffer[Scanline][X1 + X] == self.blankPixel).all():
-                                                pass
-                                            else:
-                                                self.Status = self.Status | 64
-                                            #if self.vBuffer[Scanline][a + X] <> 16: self.Status = self.Status | 64
-                                            self.vBuffer[Scanline][X1 + X] =  self.Pal[self.Palettes[Color | addToCol]]
-                                else:
-                                    '''self.vBuffer[self.Scanline][0 - X1] = self.Pal[(c1>>6)]
-                                    self.vBuffer[self.Scanline][4 - X1] = self.Pal[(c1>>2)&3]
-                                    self.vBuffer[self.Scanline][1 - X1] = self.Pal[(c2>>6)]
-                                    self.vBuffer[self.Scanline][5 - X1] = self.Pal[(c2>>2)&3]
-                                    self.vBuffer[self.Scanline][2 - X1] = self.Pal[(c1>>4)&3]
-                                    self.vBuffer[self.Scanline][6 - X1] = self.Pal[c1&3]
-                                    self.vBuffer[self.Scanline][3 - X1] = self.Pal[(c2>>4)&3]
-                                    self.vBuffer[self.Scanline][7 - X1] = self.Pal[c2&3]'''
-                                    a = i + X1 + 7
-                                    for X  in range(8):#= 0 To 7 #'draw yellow block for now.
-                                        Color = 1 if Byte1 & NES.pow2[X] else 0
-                                        if Byte2 & NES.pow2[X] : Color = Color + 2
-                                        if Color:
-                                            #print self.vBuffer[Scanline][X1 - X]
-                                            if not (self.vBuffer[Scanline][X1 - X] == self.blankPixel).all():
-                                                self.Status = self.Status | 64
-                                            #if self.vBuffer[Scanline][a + X] <> 16: self.Status = self.Status | 64
-                                            self.vBuffer[Scanline][X1 - X] =  self.Pal[self.Palettes[Color | addToCol]]
-                            else:
-                                if attr & 64 : # 'horizontal flip
-                                    '''self.vBuffer[self.Scanline][0 + X1] = self.Pal[(c1>>6)]
-                                    self.vBuffer[self.Scanline][4 + X1] = self.Pal[(c1>>2)&3]
-                                    self.vBuffer[self.Scanline][1 + X1] = self.Pal[(c2>>6)]
-                                    self.vBuffer[self.Scanline][5 + X1] = self.Pal[(c2>>2)&3]
-                                    self.vBuffer[self.Scanline][2 + X1] = self.Pal[(c1>>4)&3]
-                                    self.vBuffer[self.Scanline][6 + X1] = self.Pal[c1&3]
-                                    self.vBuffer[self.Scanline][3 + X1] = self.Pal[(c2>>4)&3]
-                                    self.vBuffer[self.Scanline][7 + X1] = self.Pal[c2&3]'''
-                                    a = i + X1
-                                    for X in range(8):#= 0 To 7 #'draw yellow block for now.
-                                        Color = 1 if Byte1 & NES.pow2[X] else 0
-                                        if Byte2 & NES.pow2[X] : Color = Color + 2
-                                        if Color:
-                                            self.vBuffer[Scanline][X1 + X] =  self.Pal[self.Palettes[Color | addToCol]]
-                                else:
-                                    
-                                    a = i + X1 + 7
-                                    for X  in range(8):#= 0 To 7 #'draw yellow block for now.
-                                        Color = 1 if Byte1 & NES.pow2[X] else 0
-                                        if Byte2 & NES.pow2[X] : Color = Color + 2
-                                        if Color:
-                                            self.vBuffer[Scanline][X1 - X] =  self.Pal[self.Palettes[Color | addToCol]]                             
-                                    
-                        
-                        if spr == 0 :
-                            if Scanline == y1 + h - 1 :
-                                self.Status = self.Status ^ 0x40 #'claim we hit sprite #0
-
-
-
-
-                    
-
-    def blitScreen(self):
-        
-        cv2.imshow("Main", self.vBuffer)
-        cv2.waitKey(1)
-
-    def blitPal(self):
-        #print np.array([[self.Pal[self.VRAM[i + 0x3F00]] for i in range(31)]],np.uint8)
-        #cv2.imshow("Pal", np.array([[self.Pal[self.VRAM[i + 0x3F00]] for i in range(0x20)]]))
-        cv2.imshow("Pal", np.array([[self.Pal[i] for i in (self.BGPAL + self.SPRPAL)]]))
-        cv2.waitKey(1)
-
-#@jit
-def RenderPixelJit( Scanline, vScroll, HScroll, PPU_Control1, NameTableAddress,VRAM,tLook, Pal):
-        sc = Scanline + vScroll
-        
-        TileRow = (sc // 8) % 30
-        TileYOffset = sc & 7
-
-        NameTable = 0x2000 + (0x400 * (PPU_Control1 & 0b11)) ^ NameTableAddress
-        PatternTable = (PPU_Control1 & 0x10) * 0x100
-        AttributeTable = NameTable + 0x3C0
-
-        vBuffer = [[0,0,16]] * 263
-        for TileCounter in range(HScroll // 8 , 31):
-            TileIndex = VRAM[NameTable + TileCounter + TileRow * 32]
-            '''If Mapper = 9 Or Mapper = 10 Then
-                If PatternTable = &H0 Then
-                    MMC2_latch TileIndex, False
-                ElseIf PatternTable = &H1000& Then
-                    MMC2_latch TileIndex, True
-                End If
-            End If'''
-            Byte1 = VRAM[PatternTable + TileIndex * 16 + TileYOffset]
-            Byte2 = VRAM[PatternTable + TileIndex * 16 + 8 + TileYOffset]
-            X = TileCounter * 8 - HScroll + 7
-            m = X if X < 7 else 7
-            X = X + Scanline * 256
-            LookUp = VRAM[AttributeTable + TileCounter // 4 + (TileRow // 4) * 0x8]
-            Tiletemp = (TileCounter & 2) | (TileRow & 2) * 2
-            if Tiletemp == 0:
-                    addToCol = LookUp * 4 & 12
-            elif Tiletemp == 2:
-                    addToCol = LookUp & 12
-            elif Tiletemp == 4:
-                    addToCol = LookUp // 4 & 12
-            elif Tiletemp == 6:
-                    addToCol = LookUp // 16 & 12
-            
-            a = (Byte1 * 2048) + (Byte2 * 8)
-                
-            #for pixel in range(m,0,-1): # = m To 0 Step -1
-            for pixel in range(m + 1): # = m To 0 Step -1
-
-                Color = tLook[a + pixel]
-
-                if Color :
-                    vBuffer[8 - pixel + TileCounter * 8] = Pal[Color | addToCol]
-        return np.array(vBuffer,dtype=np.uint8)
 
                     
 if __name__ == '__main__':
     ppu = PPU()
-    ppu.pPPUinit()
+    #ppu.pPPUinit()
     #print ppu.blankLine
-    print len(ppu.vBuffer)
-    print len(ppu.vBuffer[0])
+    #print len(ppu.vBuffer)
+    #print len(ppu.vBuffer[0])
     #print ppu.vBuffer[2:4]
     #print ppu.vBuffer[3]
     #print ppu.vBuffer[2][1]
     #cv2.imshow("Main", np.array(ppu.vBuffer,dtype=np.uint8))
     print ppu.Read(0x2000)
+    #print byte2bit1(0x0) + byte2bit2(0x28)
+    aa = PatternTableArr(np.array([0x10,0,0x44,0,0xfe,0,0x82,00,00,0x28,0x44,0x82,00,0x82,0x82,00],dtype=np.uint8))
 
 
 
