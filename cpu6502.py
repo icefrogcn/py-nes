@@ -245,7 +245,7 @@ class cpu6502(MMC,NES):
             try:
                 self.instruction_dic.get(instruction[self.opcode])()
             except:
-                print "Invalid opcode - %s" %hex(instruction_opcode)
+                print "Invalid opcode - %s" %hex(instruction[self.opcode])
                 print (traceback.print_exc())
                 
                 
@@ -277,11 +277,10 @@ class cpu6502(MMC,NES):
                         if self.PPU.Control1 & 0x80:
                             self.nmi6502()
 
-                        self.PPU.blitFrame()
+
                         
                             
                             #realframes = realframes + 1
-                        NES.Frames += 1
                         'ensure most recent keyboard input'
 
             
@@ -301,7 +300,13 @@ class cpu6502(MMC,NES):
                     
                     
                     self.PPU.CurrentLine = 0
-                    
+                    self.PPU.FrameStart()
+                    self.PPU.ScanlineNext()
+                    self.PPU.ScanlineStart()
+
+                    self.PPU.blitFrame()
+                    NES.Frames += 1
+                        
                     self.PPU.Status = 0x0
                     self.FrameFlag = True
                     
@@ -455,6 +460,7 @@ class cpu6502(MMC,NES):
     def abs_ct(self,var):
         if Ticks[self.opcode] == 4:
             self.clockticks6502 += 0 if (self.savepc >> 8) == ((self.savepc + var) >> 8) else 1
+            #self.clockticks6502 += 0 if (self.savepc >> 8) == ((self.savepc + var) >> 8) else 1
 
 
     def imm6502(self):
@@ -498,7 +504,7 @@ class cpu6502(MMC,NES):
         self.PC += 1
       else:
         self.adrmode(self.opcode)
-        self.PC = self.PC + self.savepc
+        self.PC += self.savepc
         self.clockticks6502 += 1
 
 
@@ -506,7 +512,7 @@ class cpu6502(MMC,NES):
     def bcs6502(self):
       if (self.p & 0x1) :
         self.adrmode(self.opcode)
-        self.PC = self.PC + self.savepc
+        self.PC +=  self.savepc
         self.clockticks6502 += 1
       else:
         self.PC += 1
@@ -514,7 +520,7 @@ class cpu6502(MMC,NES):
     def beq6502(self):
       if (self.p & 0x2) :
         self.adrmode(self.opcode)
-        self.PC = self.PC + self.savepc
+        self.PC += self.savepc
         self.clockticks6502 += 1
       else:
         self.PC += 1
@@ -532,8 +538,8 @@ class cpu6502(MMC,NES):
     def bmi6502(self):
       if (self.p & 0x80) :
         self.adrmode(self.opcode)
-        self.PC = self.PC + self.savepc
-        self.clockticks6502 = self.clockticks6502 + 1
+        self.PC +=  self.savepc
+        self.clockticks6502 +=  1
       else:
         self.PC += 1
 

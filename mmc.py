@@ -7,7 +7,7 @@
 from nes import NES
 from rom import nesROM as ROM
 
-class MMC(NES):
+class MMC(ROM, NES):
     CurrVr  = 0 #As Byte
     PrgSwitch1 =0 # Byte
     PrgSwitch2 =0 # Byte
@@ -42,8 +42,12 @@ class MMC(NES):
     def SetPROM_Banks(self):
         pass
 
-
+    def Select8KVROM(self, val1, VROM):
+        val1 = MaskVROM(val1, NES.VROM_8K_SIZE)
+        return VROM[val1 * 0x2000 : val1 * 0x2000 + 0x2000]
     
+
+
 def MaskVROM(page, mask):
     return page and (mask - 1)
 

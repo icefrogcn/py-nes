@@ -18,6 +18,7 @@ from wrfilemod import read_file_to_array
 
 import rom
 from rom import nesROM as ROM
+from rom import get_Mapper_by_fn
 
 
 from cpu6502commands import init6502
@@ -53,12 +54,7 @@ class neshardware(MMC, NES):
     CPU_RAM = [0]* 0x10000
 
 
-
-        
-    
-    VROM = []  
-
-
+    ROM = ROM()
     reg8 = 0 # As Byte
     regA = 0 # As Byte
     regC = 0 # As Byte
@@ -71,16 +67,6 @@ class neshardware(MMC, NES):
 
     FrameSkip = 0 #'Integer
 
-
-        #tLook = [0]*0x80000 #颜色查询表
-    CPal = ["#686868", "#804000", "#800000", "#800040", "#800080", "#400080", "#80", "#55", 
-    "#4040", "#5033", "#5000", "#5000", "#404000", "#0", "#0", "#0", 
-    "#989898", "#C08000", "#C04040", "#C00080", "#C000C0", "#8000C0", "#2020C0", "#40C0", 
-    "#8080", "#8055", "#8000", "#338033", "#808000", "#0", "#0", "#0", 
-    "#D0D0D0", "#FFC040", "#FF8080", "#FF40C0", "#FF00FF", "#C040FF", "#5050FF", "#4080FF", 
-    "#C0C0", "#C080", "#C000", "#55C055", "#C0C000", "#333333", "#0", "#0",
-    "#FFFFFF", "#FFFF80", "#FFC0C0", "#FF80FF", "#FF40FF", "#FF80FF", "#8080FF", "#80C0FF", 
-    "#40FFFF", "#40FFC0", "#40FF40", "#AAFFAA", "#FFFF40", "#999999", "#0", "#0"] #颜色板
 
     PatternTable =0 #Long
     NameTable =0 #Long
@@ -109,7 +95,7 @@ class neshardware(MMC, NES):
         self.cpu6502.APU = APU()
         self.cpu6502.JOYPAD1 = JOYPAD()
         self.cpu6502.JOYPAD2 = JOYPAD()
-        self.ROM = ROM()
+        
 
         #self.CPURunning = cpu6502.CPURunning
 
@@ -147,6 +133,7 @@ class neshardware(MMC, NES):
         starttk = time.time()
         totalFrame = 0
 
+        self.cpu6502.PPU.ScrollToggle = 1
         self.PowerON()
         
         while NES.CPURunning:
@@ -271,8 +258,9 @@ class neshardware(MMC, NES):
 
 
     def Select8KVROM(self, val1):
-        val1 = self.MaskVROM(val1, NES.VROM_8K_SIZE)
-        self.cpu6502.PPU.VRAM[0:0x2000] = self.ROM.VROM[val1 * 0x2000 : val1 * 0x2000 + 0x2000]
+        #val1 = self.MaskVROM(val1, NES.VROM_8K_SIZE)
+        self.cpu6502.PPU.VRAM[0:0x2000] = MMC.Select8KVROM(self, val1, self.ROM.VROM)
+        #self.cpu6502.PPU.VRAM[0:0x2000] = self.ROM.VROM[val1 * 0x2000 : val1 * 0x2000 + 0x2000]
         #MemCopy(self.cpu6502.PPU.VRAM, 0, self.ROM.VROM, val1 * 0x2000, 0x2000)
 
     def Select1KVROM(self, val1, bank):
@@ -411,19 +399,43 @@ def show_rom_info(ROM):
     print "Mirroring=" , ROM.Mirroring , " Trainer=" , ROM.Trainer , " FourScreen=" , ROM.FourScreen , " SRAM=" , ROM.UsesSRAM
     
 
+ROMS_DIR = os.getcwd()+ '\\roms\\'
+#ROMS_DIR = 'F:\\individual_\\Amuse\\EMU\FCSpec\\'
+
+def roms_list():
+    return [item for item in os.listdir(ROMS_DIR) if ".nes" in item.lower()]
+
+def get_roms_mapper(roms_list):
+    roms_info = []
+    for i,item in enumerate(roms_list):
+        mapper = get_Mapper_by_fn(ROMS_DIR + item)
+        #if mapper in [0,2]:
+            
+        roms_info.append([i,item,get_Mapper_by_fn(ROMS_DIR + item)])
+    return roms_info
+        
+def show_choose(ROMS_INFO):
+    for item in ROMS_INFO:
+        print item
+    print "---------------"
+    print 'choose a number as a selection.'
+
 
 if __name__ == '__main__':
     pass
-    fc = neshardware(debug)
-    #print fc.Mapper
-    #fc.debug = True
-    fc.LoadROM(os.getcwd() + '\\roms\\Kage.nes')
-    #print fc.Mapper
-    #print [[hex(i),hex(fc.MaskBankAddress(i)),hex(i & 0xF)] for i in range(255)]
-    #print fc.MaskBankAddress(1)
-    #print fc.MaskBankAddress(0xEE)
-    #print fc.MaskBankAddress(0xFF)
-    fc.StartingUp()
+    ROMS = roms_list()
+    ROMS_INFO = get_roms_mapper(ROMS)
+    while True:
+        show_choose(ROMS_INFO)
+        gn = input("choose a number: ")
+        
+        if not gn <= len(ROMS):
+            continue
+        fc = neshardware(debug)
+        #fc.debug = True
+        fc.LoadROM(ROMS_DIR + ROMS[gn])
+        #fc.cpu6502.PPU.render = True
+        fc.StartingUp()
         
 
 

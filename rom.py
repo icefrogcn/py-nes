@@ -33,7 +33,7 @@ nesROMdata =[]
 i16K_ROM_NUMBER = 0
 i8K_VROM_NUMBER = 0
 ROM = []
-VROM = []
+
 def rom_ok(data):
     if ''.join([chr(i) for i in data[:0x4]]) == 'NES\x1a':
         print 'ROM OK!'
@@ -52,7 +52,7 @@ class nesROM(NES):
     data = []
     filename = ''
 
-
+    VROM = [] 
 
     '''
 '===================================='
