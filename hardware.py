@@ -135,6 +135,7 @@ class neshardware(MMC, NES):
 
         self.cpu6502.PPU.ScrollToggle = 1
         self.PowerON()
+        self.cpu6502.PPU.ScreenShow()
         
         while NES.CPURunning:
 
@@ -216,7 +217,7 @@ class neshardware(MMC, NES):
             self.regE = 0xFF
             self.MMC3_Sync()
             MMC.MMC3_IrqVal = 0
-            MMC.MMC3_IrqOn = False
+            MMC.irq_enable = False
             MMC.MMC3_TmpVal = 0
             if self.ROM.ChrCount :
                 self.Select8KVROM(0)
@@ -372,10 +373,10 @@ class neshardware(MMC, NES):
         elif Address == 0xC001:
             MMC.MMC3_TmpVal = value
         elif Address == 0xE000:
-            MMC.MMC3_IrqOn = False
+            MMC.irq_enable = False
             MMC.MMC3_IrqVal = MMC.MMC3_TmpVal
         elif Address == 0xE001:
-            MMC.MMC3_IrqOn = True
+            MMC.irq_enable = True
 
 @jit
 def MaskBankAddress(bank, PrgCount):
@@ -420,22 +421,27 @@ def show_choose(ROMS_INFO):
     print "---------------"
     print 'choose a number as a selection.'
 
-
-if __name__ == '__main__':
-    pass
+def run(debug = True):
     ROMS = roms_list()
     ROMS_INFO = get_roms_mapper(ROMS)
     while True:
         show_choose(ROMS_INFO)
         gn = input("choose a number: ")
-        
+        print gn
+        if gn == 'c':
+            break
         if not gn <= len(ROMS):
             continue
         fc = neshardware(debug)
         #fc.debug = True
         fc.LoadROM(ROMS_DIR + ROMS[gn])
-        #fc.cpu6502.PPU.render = True
+        fc.cpu6502.PPU.Running = 1
+        fc.cpu6502.PPU.render = not debug
         fc.StartingUp()
+        
+if __name__ == '__main__':
+    run(True)
+
         
 
 

@@ -34,7 +34,14 @@ from joypad import JOYPAD
 
 
 
-
+C_FLAG = 0x01	#	// 1: Carry
+Z_FLAG = 0x02	#	// 1: Zero
+I_FLAG = 0x04	#	// 1: Irq disabled
+D_FLAG = 0x08	#	// 1: Decimal mode flag (NES unused)
+B_FLAG = 0x10	#	// 1: Break
+R_FLAG = 0x20	#	// 1: Reserved (Always 1)
+V_FLAG = 0x40	#	// 1: Overflow
+N_FLAG = 0x80	#	// 1: Negative
 
 
 class cpu6502(MMC,NES):
@@ -51,14 +58,7 @@ class cpu6502(MMC,NES):
     p =0 #Byte                '标志寄存器
 
 
-    C_FLAG = 0x01	#	// 1: Carry
-    Z_FLAG = 0x02	#	// 1: Zero
-    I_FLAG = 0x04	#	// 1: Irq disabled
-    D_FLAG = 0x08	#	// 1: Decimal mode flag (NES unused)
-    B_FLAG = 0x10	#	// 1: Break
-    R_FLAG = 0x20	#	// 1: Reserved (Always 1)
-    V_FLAG = 0x40	#	// 1: Overflow
-    N_FLAG = 0x80	#	// 1: Negative
+
 
     
     '32bit instructions are faster in protected mode than 16bit'
@@ -252,24 +252,17 @@ class cpu6502(MMC,NES):
             if self.clockticks6502 > self.maxCycles1:
                 #self.log("Normal:",self.status()) ############################
                 
+                self.PPU.RenderScanline()
+
                 self.PPU.CurrentLine +=  1
 
                 #if self.debug == False:
-                self.PPU.RenderScanline()
                     
                     
                 if NES.Mapper == 4:
                     if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.Control1) == True :
                         self.irq6502()
-        
-                    
 
-
-                '''if self.tilebased:
-                    h = 16 if (self.PPU_Control1 & 0x20)  else  8
-                    if (self.PPU_Status & 64) == 0 :
-                        if self.CurrentLine > self.SpriteRAM[0] + h :
-                            self.PPU_Status = self.PPU_Status | 64'''
                         
                 if self.PPU.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
@@ -277,21 +270,12 @@ class cpu6502(MMC,NES):
                         if self.PPU.Control1 & 0x80:
                             self.nmi6502()
 
-
-                        
-                            
-                            #realframes = realframes + 1
+                           #realframes = realframes + 1
                         'ensure most recent keyboard input'
 
             
                     self.PPU.Status = 0x80
 
-
-                        
-                    #JoyPadINPUT()
-                    
-                    
-                        
                         
                 if self.PPU.CurrentLine == 262:
                     #self.log("FRAME:",self.status()) ###########################
@@ -300,11 +284,10 @@ class cpu6502(MMC,NES):
                     
                     
                     self.PPU.CurrentLine = 0
-                    self.PPU.FrameStart()
-                    self.PPU.ScanlineNext()
-                    self.PPU.ScanlineStart()
 
-                    self.PPU.blitFrame()
+                    if self.PPU.Running:self.PPU.blitFrame()
+        
+                    
                     NES.Frames += 1
                         
                     self.PPU.Status = 0x0
@@ -954,7 +937,7 @@ class cpu6502(MMC,NES):
             return self.bankE[Address - 0xE000]
 
         
-        elif Address == 0x2002 or Address == 0x2004 or Address == 0x2007:#addr == 0x01:
+        elif addr == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
             
             return self.PPU.Read(Address)
 
@@ -1014,7 +997,10 @@ class cpu6502(MMC,NES):
 
                     
         else:
-            pass
+            print hex(Address)
+            print "Write HARD bRK"
+
+            
     def WriteReg(self,Address,value):
         addr = Address & 0xFF
         if  addr <= 0x13 or addr == 0x15:

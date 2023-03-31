@@ -76,7 +76,9 @@ class PPU(NES):
             0x2007:self.VRAM_2007_R,
                 }
 
-        self.render = False
+        self.Running = 1
+        
+        self.render = True
 
         self.tilebased = False
 
@@ -89,7 +91,7 @@ class PPU(NES):
         self.Address = 0 # $2006
         self.AddressIsHi = 1
         self.PPU7_Temp = 0xFF
-        self.ScrollToggle = 0 #$2005-$2006 Toggle
+        self.ScrollToggle = 0 #$2005-$2006 Toggle PPU56Toggle
         self.HScroll = 0
         self.vScroll = 0
 
@@ -98,6 +100,12 @@ class PPU(NES):
         self.loopy_x = 0
         self.loopy_y = 0
         self.loopy_shift = 0
+
+        self.loopy_v0 = 0
+        self.loopy_t0 = 0
+        self.loopy_x0 = 0
+        self.loopy_y0 = 0
+        self.loopy_shift0 = 0
 
         self.scX = 0
         self.scY = 0
@@ -142,6 +150,12 @@ class PPU(NES):
         self.SPRPAL = [0] * 0x10
         
         
+
+
+    def ScreenShow(self):
+        if self.Running == 0:
+            self.render = False
+            return
         if self.render and self.debug == False:
             cv2.namedWindow('Main', cv2.WINDOW_NORMAL)
             cv2.namedWindow('Pal', cv2.WINDOW_NORMAL)
@@ -152,7 +166,7 @@ class PPU(NES):
             cv2.namedWindow('SC_TEST', cv2.WINDOW_NORMAL)
         #cv2.namedWindow('PatternTable2', cv2.WINDOW_NORMAL)
         #cv2.namedWindow('PatternTable3', cv2.WINDOW_NORMAL)
-
+    
     def ShutDown(self):
         if self.render:
             cv2.destroyAllWindows()
@@ -236,7 +250,7 @@ class PPU(NES):
                 self.vScroll = value
                 self.AddressIsHi = 1
 
-            if( not self.ScrollToggle):
+            '''if( not self.ScrollToggle):
                 #First write
                 #tile X t:0000000000011111=d:11111000
                 self.loopy_t = (self.loopy_t & 0xFFE0)|(value>>3)
@@ -247,7 +261,7 @@ class PPU(NES):
 		#tile Y t:0000001111100000=d:11111000
                 self.loopy_t = (self.loopy_t & 0xFC1F)|((value & 0xF8)<<2)
 		#scroll offset Y t:0111000000000000=d:00000111
-                self.loopy_t = (self.loopy_t & 0x8FFF)|((value & 0x07)<<12)
+                self.loopy_t = (self.loopy_t & 0x8FFF)|((value & 0x07)<<12)'''
             
             self.ScrollToggle = not self.ScrollToggle
                 
@@ -259,7 +273,7 @@ class PPU(NES):
                 self.Address = self.AddressHi + value
                 self.AddressIsHi = 1
 
-            if( not self.ScrollToggle):
+            '''if( not self.ScrollToggle):
                 #First write
 		#t:0011111100000000=d:00111111
                 # t:1100000000000000=0
@@ -270,7 +284,7 @@ class PPU(NES):
 		#// t:0000000011111111=d:11111111
                 self.loopy_t = (self.loopy_t & 0xFF00)|value
 		#v=t
-                self.loopy_t = self.loopy_t
+                self.loopy_t = self.loopy_t'''
 
             self.ScrollToggle = not self.ScrollToggle
                 
@@ -307,9 +321,27 @@ class PPU(NES):
                 self.Address = self.Address + 1
                 
     def RenderScanline(self):
+        '''if self.CurrentLine == 0:
+            self.FrameStart()
+            self.ScanlineNext()
+            #mapper->HSync( scanline )
+            self.ScanlineStart()
 
-        if self.CurrentLine > 239:return
+            self.loopy_v0 = self.loopy_v
+            self.loopy_t0 = self.loopy_t
+            self.loopy_x0 = self.loopy_x
+            self.loopy_y0 = self.loopy_y
+            self.loopy_shift0 = self.loopy_shift
+            
+            self.NTnum = self.Control1 & PPU_NAMETBL_BIT
         
+        elif self.CurrentLine < 240:
+            self.ScanlineNext()
+            #mapper->HSync( scanline )
+            self.ScanlineStart()
+'''
+        if self.CurrentLine > 239:return
+
         if self.CurrentLine < 8 :
             self.Status = self.Status & 0x3F
 
@@ -327,45 +359,6 @@ class PPU(NES):
 
         '''self.sp_h = 16 if self.Control1 & PPU_SP16_BIT else 8
 
-        
-        if self.tilebased:
-            if self.Status & PPU_SPHIT_FLAG == 0:
-                if self.CurrentLine > self.SpriteRAM[0] + self.sp_h :
-                    self.Status = self.Status | PPU_SPHIT_FLAG
-            if self.CurrentLine == 1:
-                self.vBuffer[self.CurrentLine] = self.blankLine
-                self.DrawSprites(True)
-                
-            if self.CurrentLine == 239:
-                pass
-                self.DrawSprites(False)
-        else:
-            self.vBuffer[self.CurrentLine] = self.blankLine
-            #'draw background sprites
-            pass
-            #self.RenderSprites(True)
-
-
-        #draw background
-        
-        if self.CurrentLine < 240 - self.vScroll :
-            pass
-            #print "400",self.CurrentLine
-            #self.NameTable = 0x2000 + (0x400 * (self.Control1 & 0b11))
-            #self.NameTable = 0x2000 + (0x400 * (self.Control1 & 0b11)) ^ 0x400
-            #self.RenderScanlinePixel(0)
-            #self.RenderScanlinePixel(0x400)
-
-        else:
-            pass
-            #print "C00",self.CurrentLine
-            #self.RenderScanlinePixel(0x800)
-            #self.RenderScanlinePixel(0xC00)
-
-
-        if not self.tilebased :#'draw foreground sprites
-            pass
-            self.RenderSprites(False)
 '''
 
     def ScanlineStart(self):
@@ -525,31 +518,29 @@ class PPU(NES):
         #self.lineBuffer = lineArry
         
     def blitFrame(self):
-        #vBuffer = self.RenderBG()
         if self.Control2 & (PPU_SPDISP_BIT|PPU_BGDISP_BIT) == 0 :return
         
         self.sp16 = 1 if self.Control1 & PPU_SP16_BIT else 0
 
-        NTnum = (self.loopy_v & 0x0FFF) >>10
+        #NTnum = (self.loopy_v0 & 0x0FFF) >>10
+        NTnum = self.Control1 & PPU_NAMETBL_BIT
 
-        fineYscroll = self.loopy_v >>12
-        coarseYscroll  = (self.loopy_v & 0x03FF) >> 5
-        coarseXscroll = self.loopy_v & 0x1F
-        #print 'fineYscroll: ', fineYscroll,'coarseYscroll: ', coarseYscroll
-        #fineYscroll = (self.loopy_t & 0x0FFF) >>12
-        #coarseYscroll  = (self.loopy_t & 0x03FF) >> 5
-        #print 'fineYscrollt: ', fineYscroll,'coarseYscrollt: ', coarseYscroll
-        #bin(self.loopy_v), bin(self.loopy_t),bin(self.loopy_x)
+        #fineYscroll = self.loopy_v >>12
+        #coarseYscroll  = (self.loopy_v & 0x03FF) >> 5
+        #coarseXscroll = self.loopy_v & 0x1F
+
         if NES.Mirroring:
-            self.scY = (coarseYscroll << 3) + fineYscroll + ((NTnum>>1) * 240) #if self.loopy_v&0x0FFF else self.scY
-            self.scX = (coarseXscroll << 3)+ self.loopy_x#self.HScroll
+            #self.scY = (coarseYscroll << 3) + fineYscroll + ((NTnum>>1) * 240) 
+            #self.scX = (coarseXscroll << 3)+ self.loopy_x0 #self.HScroll
+            self.scY = self.vScroll + ((NTnum>>1) * 240)
+            self.scX = self.HScroll + ((NTnum & 1) * 256)
             
         if NES.Mirroring == 0:
-            self.scY = (coarseYscroll << 3) + fineYscroll + ((NTnum>>1) * 240) #if self.loopy_v&0x0FFF else self.scY
+            #self.scY = (coarseYscroll << 3) + fineYscroll + ((NTnum>>1) * 240) #if self.loopy_v&0x0FFF else self.scY
+            self.scY = self.vScroll + ((NTnum>>1) * 240) 
             #if self.loopy_v&0x0FFF else self.scY
         
         self.RenderBG()
-
 
         self.RenderSprites()
         
@@ -562,19 +553,16 @@ class PPU(NES):
             self.blitPal()
         else:
             if self.debug:
-                print self.vScroll, hex(NTnum), fineYscroll, self.scX,self.scY,self.HScroll,self.loopy_v&0x1F
+                print self.vScroll, hex(NTnum), self.scY, self.scX, self.HScroll #,hex(coarseYscroll), hex(coarseXscroll), 
             self.blitPatternTable()
             self.blitPal()
             
     def RenderSprites(self):
         #PatternTablesAddress = 0x1000 if self.Control1 & PPU_SPTBL_BIT and self.sp16 else 0
-        PatternTablesAddress,PatternTablesSize = (0x1000,0x1000) if self.Control1 & PPU_SPTBL_BIT else (0,0x1000)
+        PatternTablesAddress,PatternTablesSize = (0x1000,0x1000) if self.Control1 & PPU_SPTBL_BIT and self.sp16 else (0 ,0x1000)
         
         PatternTable_Array = PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + PatternTablesSize])
 
-        #SPHIT = 1 if self.Status & PPU_SPHIT_FLAG else 0
-        x = 0#self.HScroll if self.HScroll or NES.Mirroring == 0 or NES.FourScreen else 256
-        y = 0#self.vScroll if self.vScroll or NES.Mirroring or NES.FourScreen else 240
         
         self.FrameBuffer = RenderSpriteArray(self.SpriteRAM, PatternTable_Array, self.FrameBuffer, self.scY, self.scX, self.sp16, self.ScanlineSPHit)
          
@@ -586,8 +574,7 @@ class PPU(NES):
         PatternTablesAddress = (self.Control1 & PPU_BGTBL_BIT) << 8 #* 0x100
         
         PatternTable_Array = PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + 0x1000])
-        #print PatternTable_Array[1]
-        #print self.NameTables_data(0)
+
         if NES.Mirroring:
             self.FrameBuffer = self.RenderNameTableH(PatternTable_Array, 0,1)
 
@@ -613,7 +600,7 @@ class PPU(NES):
     def RenderNameTableV(self,PatternTables,nt0,nt2):
         tempBuffer0 = AttributeTableArr(self.RenderAttributeTables(nt0), NameTableArr(self.NameTables_data(nt0),PatternTables))
         tempBuffer2 = AttributeTableArr(self.RenderAttributeTables(nt2), NameTableArr(self.NameTables_data(nt2),PatternTables))
-        return np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0))
+        return np.column_stack((np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0)),np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0))))
     
     def RenderNameTables(self,PatternTables,nt0,nt1,nt2,nt3):
         
@@ -633,17 +620,13 @@ class PPU(NES):
     def blitScreen(self):
         
         cv2.imshow("Main", self.FrameBuffer[self.scY:self.scY + 240,self.scX:self.scX+256])
-        #cv2.imshow("Main", paintBuffer(self.vBuffer,self.Pal,self.Palettes))
         cv2.waitKey(1)
 
     def blitPal(self):
-        #cv2.imshow("Pal", np.array([[self.Pal[self.VRAM[i + 0x3F00]] for i in range(0x20)]]))
         cv2.imshow("Pal", np.array([[self.Pal[i] for i in (self.BGPAL + self.SPRPAL)]]))
         cv2.waitKey(1)
 
     def blitPatternTable(self):
-        #x = self.HScroll if self.HScroll or NES.Mirroring == 0 or NES.FourScreen else 256
-        #y = self.vScroll if self.vScroll or NES.Mirroring or NES.FourScreen else 240
         cv2.line(self.FrameBuffer,(0,240),(768,240),(0,255,0),1) 
         cv2.line(self.FrameBuffer,(0,480),(768,480),(0,255,0),1) 
         cv2.line(self.FrameBuffer,(256,0),(256,720),(0,255,0),1) 
@@ -673,52 +656,61 @@ def paintBuffer(FrameBuffer,Pal,Palettes):
 
 #@jit
 def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHIT):
-    SpritesArray = np.zeros((8,8),np.uint8)
+    #SpritesArray = np.zeros((8,8),np.uint8)
     for spriteIndex in range(63,-1,-1):
         spriteOffset =  spriteIndex * 4
         if SPRAM[spriteOffset] > 240: continue
-        #if SPRAM[spriteOffset + 3] < 0 or SPRAM[spriteOffset + 3] > 256: continue
+        
         spriteY = SPRAM[spriteOffset] + vScroll
         spriteX = SPRAM[spriteOffset + 3] + HScroll
-        #
+        
 
         
-        
-        SpriteArr = PatternTableArray[SPRAM[spriteOffset + 1]]
+        chr_index = SPRAM[spriteOffset + 1]
         if SP16:
-            pass
-            SpriteArr1 = PatternTableArray[SPRAM[spriteOffset + 1] - 1 ]
-            SpriteArr = np.row_stack((SpriteArr1,SpriteArr))
+            chr_index = chr_index ^ (chr_index & 1)
+        chr_l = PatternTableArray[chr_index]
+        chr_h = PatternTableArray[chr_index + 1]
+ 
             
-        if SPRAM[spriteOffset + 2] & 0x80:
-            SpriteArr = np.flip(SpriteArr,0)      #FlipV
-            
-        if SPRAM[spriteOffset + 2] & 0x40:
-            SpriteArr = np.flip(SpriteArr,1)      #FlipH'''
+        if SPRAM[spriteOffset + 2] & SP_HMIRROR_BIT:
+            chr_l = np.flip(chr_l,1)      
+            if SP16:
+                chr_h = np.flip(chr_h,1)
+                
+
+        if SPRAM[spriteOffset + 2] & SP_VMIRROR_BIT:
+            chr_l = np.flip(chr_l,0)     
+            if SP16:
+                chr_h = np.flip(chr_h,0)
+                chr_l,chr_h = chr_h,chr_l
 
             
+
+        SpriteArr = np.row_stack((chr_l,chr_h)) if SP16 else chr_l
 
         
-        if SPRAM[spriteOffset + 2] & 0x3:
-            SpriteArr += (SPRAM[spriteOffset + 2] & 0x3) << 2 
+        if SPRAM[spriteOffset + 2] & SP_COLOR_BIT:
+            SpriteArr += (SPRAM[spriteOffset + 2] & SP_COLOR_BIT) << 2 
             
-        spriteW = 8 # if (spriteX + 8 - 256) < 0 else (256 - spriteX)
-        spriteH = SpriteArr.shape[0] #8 << SP16 # if (spriteY + 8 - 240) < 0 else (240 - spriteY)
+        spriteW = 8 
+        spriteH = SpriteArr.shape[0] 
         
         if BG.shape[0] - spriteY > spriteH and BG.shape[1] - spriteX > spriteW :
-            BGPriority = SPRAM[spriteOffset + 2] & 32
+            BGPriority = SPRAM[spriteOffset + 2] & SP_PRIORITY_BIT
             if BGPriority:
                 BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW] == 0] \
                                    = SpriteArr[[BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW] == 0]]
             else:
-            #if SPHIT[SPRAM[spriteOffset]] == 0:
-                #SpriteArr[SpriteArr > 0] += 0x10
-                #BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW] = SpriteArr #<<1#[0:spriteH,0:spriteW]
-                BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][SpriteArr & 3 > 0] = SpriteArr[SpriteArr & 3 > 0] + 0x10#<<1#[0:spriteH,0:spriteW]
-            #else:
-                #BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW] = SpriteArr #+ 0x10
+                if SPHIT[SPRAM[spriteOffset]] == 0:
+                    #SpriteArr[SpriteArr > 0] += 0x10
+                    #BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW] = SpriteArr #<<1#[0:spriteH,0:spriteW]
+                    BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][SpriteArr & 3 > 0] = SpriteArr[SpriteArr & 3 > 0] + 0x10#<<1#[0:spriteH,0:spriteW]
+                else:
+                    BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW] = SpriteArr #+ 0x10
         
     return BG
+
 
 @jit
 def AttributeTableArr(AttributeTables, FrameBuffer):

@@ -7,6 +7,8 @@ import keyboard
 #JOYPAD
 from nes import NES
 
+BUTTON_PRESS = 0x41
+BUTTON_RELEASE = 0x40
 class JOYPAD(NES):
     
     def __init__(self,debug = False):
@@ -26,28 +28,28 @@ class JOYPAD(NES):
             print "Invalid PPU Read - %s" %hex(addr)
             print (traceback.print_exc())
             return 0'''
-        if keyboard.is_pressed('enter'):
-            print "START"
-            self.Joypad[3] = 0x41
+        if keyboard.is_pressed('b'):
+            #print "START"
+            self.Joypad[3] = BUTTON_PRESS
         else:
             pass
-            self.Joypad[3] = 0x40
+            self.Joypad[3] = BUTTON_RELEASE
 
         if keyboard.is_pressed('v'):
-            print "SELECT"
-            self.Joypad[2] = 0x41
+            #print "SELECT"
+            self.Joypad[2] = BUTTON_PRESS
         else:
             pass
-            self.Joypad[2] = 0x40
+            self.Joypad[2] = BUTTON_RELEASE
 
         
-        self.Joypad[1] = 0x41 if keyboard.is_pressed('j') else 0x40
-        self.Joypad[0] = 0x41 if keyboard.is_pressed('k') else 0x40
+        self.Joypad[1] = BUTTON_PRESS if keyboard.is_pressed('j') else BUTTON_RELEASE
+        self.Joypad[0] = BUTTON_PRESS if keyboard.is_pressed('k') else BUTTON_RELEASE
         
-        self.Joypad[4] = 0x41 if keyboard.is_pressed('w') else 0x40
-        self.Joypad[5] = 0x41 if keyboard.is_pressed('s') else 0x40
-        self.Joypad[6] = 0x41 if keyboard.is_pressed('a') else 0x40
-        self.Joypad[7] = 0x41 if keyboard.is_pressed('d') else 0x40
+        self.Joypad[4] = BUTTON_PRESS if keyboard.is_pressed('w') else BUTTON_RELEASE
+        self.Joypad[5] = BUTTON_PRESS if keyboard.is_pressed('s') else BUTTON_RELEASE
+        self.Joypad[6] = BUTTON_PRESS if keyboard.is_pressed('a') else BUTTON_RELEASE
+        self.Joypad[7] = BUTTON_PRESS if keyboard.is_pressed('d') else BUTTON_RELEASE
 
 
         if keyboard.is_pressed('0'):

@@ -22,7 +22,7 @@ class MMC(ROM, NES):
     MMC3_ChrAddr= 0# Integer
     MMC3_IrqVal= 0# Byte
     MMC3_TmpVal= 0# Byte
-    MMC3_IrqOn= False# Boolean
+    irq_enable= False# Boolean
 
     def MMC3_HBlank(self, Scanline, two): # As Boolean
     
@@ -33,7 +33,7 @@ class MMC(ROM, NES):
         elif Scanline > 239:
             return
         
-        elif self.MMC3_IrqOn & (two & 0x18):
+        elif self.irq_enable & (two & 0x18):
             self.MMC3_IrqVal = self.MMC3_IrqVal - 1
             if (self.MMC3_IrqVal == 0):
                 self.MMC3_IrqVal = self.MMC3_TmpVal
