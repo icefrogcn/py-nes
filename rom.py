@@ -108,10 +108,10 @@ class nesROM(NES):
         NES.PROM_16K_SIZE = self.GetPROM_SIZE()
         NES.PROM_32K_SIZE = self.GetPROM_SIZE() / 2
 
-        VROM_1K_SIZE = self.GetVROM_SIZE() * 8
-        VROM_2K_SIZE = self.GetVROM_SIZE() * 4
-        VROM_4K_SIZE = self.GetVROM_SIZE() * 2
-        VROM_8K_SIZE = self.GetVROM_SIZE()
+        NES.VROM_1K_SIZE = self.GetVROM_SIZE() * 8
+        NES.VROM_2K_SIZE = self.GetVROM_SIZE() * 4
+        NES.VROM_4K_SIZE = self.GetVROM_SIZE() * 2
+        NES.VROM_8K_SIZE = self.GetVROM_SIZE()
     
         self.Trainer = self.ROMCtrl & 0x4
         self.Mirroring = self.ROMCtrl & 0x1
@@ -146,15 +146,16 @@ class nesROM(NES):
 
     def SetPROM(self):
         '****读取PRG数据****'
-        self.PROM = self.data[self.HEADER_SIZE: self.PrgCount2 * 0x4000 + self.HEADER_SIZE]
+        NES.PROM = np.array(self.data[self.HEADER_SIZE: self.PrgCount2 * 0x4000 + self.HEADER_SIZE], np.uint8)
 
     def SetVROM(self):
         '****读取CHR数据****'
         self.PrgMark = 0x4000 * self.PrgCount2 + self.HEADER_SIZE
-        self.VROM =[0] * (self.ChrCount2 * 0x2000)
+        NES.VROM = np.zeros(self.ChrCount2 * 0x2000, np.uint8)
         if self.ChrCount2:
-            #self.VROM = self.data[self.PrgMark: self.ChrCount2 * 0x2000 + self.HEADER_SIZE]
-            MemCopy (self.VROM,0, self.data, self.PrgMark, self.ChrCount2 * 0x2000)
+            NES.VROM = np.array(self.data[self.PrgMark: self.ChrCount2 * 0x2000 + self.PrgMark], np.uint8)
+            
+            #MemCopy (NES.VROM,0, self.data, self.PrgMark, self.ChrCount2 * 0x2000)
             self.AndIt = self.ChrCount - 1
 
 

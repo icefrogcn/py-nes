@@ -116,7 +116,7 @@ class PPU(NES):
         self.EmphVal = 0   #???????Color
         
         #self.VRAM = [0] * 0x4000 #3FFF 
-        self.VRAM = np.zeros(0x4000, np.uint8) #3FFF #As Byte, VROM() As Byte  ' Video RAM
+        #self.VRAM = np.zeros(0x4000, np.uint8) #3FFF #As Byte, VROM() As Byte  ' Video RAM
         #self.SpriteRAM = [0] * 0x100 #FF# As Byte     
         self.SpriteRAM = np.zeros(0x100, np.uint8) #'活动块存储器，单独的一块，不占内存
         
@@ -284,7 +284,7 @@ class PPU(NES):
 		#// t:0000000011111111=d:11111111
                 self.loopy_t = (self.loopy_t & 0xFF00)|value
 		#v=t
-                self.loopy_t = self.loopy_t'''
+                self.loopy_v = self.loopy_t'''
 
             self.ScrollToggle = not self.ScrollToggle
                 
@@ -552,8 +552,8 @@ class PPU(NES):
             self.blitScreen()
             self.blitPal()
         else:
-            if self.debug:
-                print self.vScroll, hex(NTnum), self.scY, self.scX, self.HScroll #,hex(coarseYscroll), hex(coarseXscroll), 
+            #if self.debug:
+            #    print self.vScroll, hex(NTnum), self.scY, self.scX, self.HScroll #,hex(coarseYscroll), hex(coarseXscroll), 
             self.blitPatternTable()
             self.blitPal()
             
@@ -586,10 +586,7 @@ class PPU(NES):
             self.FrameBuffer = self.RenderNameTables(PatternTable_Array, 0,1,2,3)
         else:
             self.FrameBuffer = self.RenderNameTables(PatternTable_Array, 0,1,2,3)
-        #self.FrameBuffer = self.RenderNameTables(PatternTable_Array, 0,1,2,3)
-        #FrameBuffer = FrameBuffer[self.vScroll:self.vScroll+240,self.HScroll:self.HScroll + 256]
-        #print self.Palettes
-        #return FrameBuffer
+
 
     
     def RenderNameTableH(self,PatternTables,nt0,nt1):

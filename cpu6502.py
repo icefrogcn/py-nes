@@ -93,17 +93,17 @@ class cpu6502(MMC,NES):
     bankA = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
     bankC = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
     bankE = np.zeros(0x2000,np.uint8)#[0] * 8192 #As Byte
-    '''
 
-    bank0 = [0]*2048 #As Byte ' RAM            主工作内存
+
+    
     bank6 = [0]*8192 #As Byte ' SaveRAM        记忆内存
     bank8 = [0]*8192 #As Byte '8-E are PRG-ROM.主程序
     bankA = [0]*8192 #As Byte
     bankC = [0]*8192 #As Byte
     bankE = [0] * 8192 #As Byte
+    '''
 
-
-
+    bank0 = [0]*2048 #As Byte ' RAM            主工作内存
     totalFrame = 0
     
     Frames = 0
@@ -927,14 +927,17 @@ class cpu6502(MMC,NES):
 
         if addr == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
             return self.bank0[Address & 0x7FF]
-        elif addr == 0x04:                      #Address >=0x8000 and Address <=0x9FFF:
-            return self.bank8[Address - 0x8000]
-        elif addr == 0x05:                      #Address >=0xA000 and Address <=0xBFFF:
-            return self.bankA[Address - 0xA000]
-        elif addr == 0x06:                      #Address >=0xC000 and Address <=0xDFFF:
-            return self.bankC[Address - 0xC000]
-        elif addr == 0x07:                      #Address >=0xE000 and Address <=0xFFFF:
-            return self.bankE[Address - 0xE000]
+        elif addr >0x03:
+            return self.MAPPER.Read(Address)
+            '''
+            if addr == 0x04:                      #Address >=0x8000 and Address <=0x9FFF:
+                return self.bank8[Address - 0x8000]
+            elif addr == 0x05:                      #Address >=0xA000 and Address <=0xBFFF:
+                return self.bankA[Address - 0xA000]
+            elif addr == 0x06:                      #Address >=0xC000 and Address <=0xDFFF:
+                return self.bankC[Address - 0xC000]
+            elif addr == 0x07:                      #Address >=0xE000 and Address <=0xFFFF:
+                return self.bankE[Address - 0xE000]'''
 
         
         elif addr == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
@@ -955,6 +958,7 @@ class cpu6502(MMC,NES):
             return self.JOYPAD2.Read()
         elif addr == 0x03: #Address == 0x6000 -0x7FFF:
             print "Read SRAM "
+            return self.MAPPER.ReadLow(Address)
         else:
             print hex(Address)
             print "Read HARD bRK"#,self.debug() ###########################
@@ -972,8 +976,11 @@ class cpu6502(MMC,NES):
             'Address >=0x0 and Address <=0x1FFF:'
             self.bank0[Address & 0x7FF] = value
         elif addr2 == 0x01: #Address >=0x8000 and Address <=0xFFFF:
-            #print "Mapper Write"
-            self.MapperWrite(Address, value)
+            if NES.newmapper_debug:
+                self.MAPPER.Write(Address, value)
+            else:
+                self.MapperWrite(Address, value)
+            pass
             
         elif addr == 0x01:
             '$2000-$3FFF'
@@ -986,6 +993,7 @@ class cpu6502(MMC,NES):
                 self.WriteReg(Address,value)
         
         elif addr == 0x03:#Address >= 0x6000 and Address <= 0x7FFF:
+            return self.MAPPER.WriteLow(Address, value)
             if NES.SpecialWrite6000 == True :
                 #print 'SpecialWrite6000'
                 self.MapperWrite(Address, value)

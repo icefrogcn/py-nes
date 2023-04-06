@@ -4,7 +4,7 @@ import os,re
 import time
 import datetime
 
-
+import numpy as np
 #from numba import jit
 
 #自定义类
@@ -50,13 +50,19 @@ class NES(object):
 
         # NES Hardware defines
 
-    CPU_RAM = [0]* 0x10000
+    RAM = [0] * 0x800 #As Byte
 
+
+    bank6 = [0] * 0x2000 #As Byte ' SaveRAM        璁板繂鍐呭瓨
+    bank8 = [0] * 0x2000 #As Byte '8-E are PRG-ROM.涓荤▼搴
+    bankA = [0] * 0x2000 #As Byte
+    bankC = [0] * 0x2000 #As Byte
+    bankE = [0] * 0x2000 #As Byte
 
 
         
-    
-    #VROM = []  
+    VRAM = np.zeros(0x4000, np.uint8) #3FFF #As Byte, VROM() As Byte  ' Video RAM
+ 
 
 
     #reg8 = 0 # As Byte
@@ -97,10 +103,14 @@ class NES(object):
     maxCycles1 = 114
     Mapper = 0
 
+    PROM = []
     PROM_8K_SIZE  = 0
     PROM_16K_SIZE = 0
     PROM_32K_SIZE = 0
 
+
+
+    VROM = []
     VROM_1K_SIZE = 0
     VROM_2K_SIZE = 0
     VROM_4K_SIZE = 0
@@ -115,17 +125,16 @@ class NES(object):
     
     CPUPaused = False #As Boolean
 
-    CPURunning = False
+    CPURunning = 0
 
-    APURunning = True
+    APURunning = 1
+    
+    PPURunning = 1
     
     Frames = 0
 
-    tLook = fillTLook()
-
-    pow2 = [2**i for i in range(31)]#*(31) #As Long
-
-    pow2 +=  [-2147483648]
+    newmapper_debug = 0
+    
     
     def __init__(self,debug = False):
         NESLoop = 0

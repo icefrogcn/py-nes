@@ -1,5 +1,6 @@
 # -*- coding: UTF-8 -*-
 import os,re
+import traceback
 
 import time
 import datetime
@@ -117,9 +118,26 @@ class neshardware(MMC, NES):
         self.cpu6502.APU.pAPUinit()
 
         
-        LoadNES = self.MapperChoose(NES.Mapper)
+        try:
+            mapper = __import__('mapper',fromlist = ['mapper%d' %self.Mapper])
+            self.cpu6502.MAPPER = eval('mapper.mapper%d.MAPPER()' %self.Mapper)
+            
+            if self.cpu6502.MAPPER.reset():
+                print "NEW MAPPER process"
+                NES.newmapper_debug = 1
+                LoadNES = 1
+        except:
+            print (traceback.print_exc())
+            NES.newmapper_debug = 0
+            mapper = __import__('mapper')
+            self.cpu6502.MAPPER = mapper.MAPPER()
+            LoadNES = self.MapperChoose(NES.Mapper)
+            if( NES.VROM_8K_SIZE ):
+                self.Select8KVROM(0)
+            else:
+                pass
         
-        
+
         
         if LoadNES == 0 :
             return False
@@ -219,7 +237,7 @@ class neshardware(MMC, NES):
             MMC.MMC3_IrqVal = 0
             MMC.irq_enable = False
             MMC.MMC3_TmpVal = 0
-            if self.ROM.ChrCount :
+            if NES.VROM_8K_SIZE :
                 self.Select8KVROM(0)
 
             
@@ -260,14 +278,14 @@ class neshardware(MMC, NES):
 
     def Select8KVROM(self, val1):
         #val1 = self.MaskVROM(val1, NES.VROM_8K_SIZE)
-        self.cpu6502.PPU.VRAM[0:0x2000] = MMC.Select8KVROM(self, val1, self.ROM.VROM)
-        #self.cpu6502.PPU.VRAM[0:0x2000] = self.ROM.VROM[val1 * 0x2000 : val1 * 0x2000 + 0x2000]
+        #self.cpu6502.PPU.VRAM[0:0x2000] = MMC.Select8KVROM(self, val1, self.ROM.VROM)
+        NES.VRAM[0:0x2000] = NES.VROM[val1 * 0x2000 : val1 * 0x2000 + 0x2000]
         #MemCopy(self.cpu6502.PPU.VRAM, 0, self.ROM.VROM, val1 * 0x2000, 0x2000)
 
     def Select1KVROM(self, val1, bank):
         val1 = self.MaskVROM(val1, self.ROM.ChrCount * 8)
         if NES.Mapper == 4:
-            MemCopy(self.cpu6502.PPU.VRAM, (MMC.MMC3_ChrAddr ^ (bank * 0x400)), self.ROM.VROM, (val1 * 0x400), 0x400)
+            MemCopy(NES.VRAM, (MMC.MMC3_ChrAddr ^ (bank * 0x400)), NES.VROM, (val1 * 0x400), 0x400)
             
         elif NES.Mapper == 23:
             pass
