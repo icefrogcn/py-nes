@@ -18,10 +18,7 @@ from vbfun import MemCopy
 
 
 
-pow2 = [2**i for i in range(31)]#*(31) #As Long
-#pow2 = [2**i for i in range(32)]#*(31) #As Long
 
-pow2 +=  [-2147483648]
 
 
 def fillTLook():
@@ -44,8 +41,10 @@ class NES(object):
 
 
     'DF: powers of 2'
-    #pow2 = [0]*(31) #As Long
-
+    pow2 = [2**i for i in range(31)]#*(31) #As Long
+    #pow2 = [2**i for i in range(32)]#*(31) #As Long
+    pow2 +=  [-2147483648]
+    
     #tilebased = False
 
         # NES Hardware defines

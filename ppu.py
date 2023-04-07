@@ -651,9 +651,8 @@ def paintBuffer(FrameBuffer,Pal,Palettes):
             img[i, j] = Pal[Palettes[FrameBuffer[i, j]]]
     return img
 
-#@jit
+@jit
 def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHIT):
-    #SpritesArray = np.zeros((8,8),np.uint8)
     for spriteIndex in range(63,-1,-1):
         spriteOffset =  spriteIndex * 4
         if SPRAM[spriteOffset] > 240: continue
@@ -700,8 +699,6 @@ def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHI
                                    = SpriteArr[[BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW] == 0]]
             else:
                 if SPHIT[SPRAM[spriteOffset]] == 0:
-                    #SpriteArr[SpriteArr > 0] += 0x10
-                    #BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW] = SpriteArr #<<1#[0:spriteH,0:spriteW]
                     BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][SpriteArr & 3 > 0] = SpriteArr[SpriteArr & 3 > 0] + 0x10#<<1#[0:spriteH,0:spriteW]
                 else:
                     BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW] = SpriteArr #+ 0x10
@@ -739,7 +736,7 @@ def NameTableArr(NameTables, PatternTables):
     return ntbuffer[0:height,0:width]
     
 
-@nb.njit#(nopython = True)
+@jit#(nopython = True)
 def PatternTableArr(Pattern_Tables):
     PatternTable = np.zeros((len(Pattern_Tables)>>4,8,8),np.uint8)
     bitarr = range(0x7,-1,-1)

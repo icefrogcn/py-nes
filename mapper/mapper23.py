@@ -37,12 +37,13 @@ class MAPPER(MAPPER,NES):
 
     def Write(self,address,data):#$8000-$FFFF Memory write
         addr = address & self.addrmask
-        
+        #print 'irq_occur: ',self.irq_occur
         if addr in (0x8000,0x8004,0x8008,0x800C):
             if self.reg[8]:
                 self.SetPROM_8K_Bank( 6, data )
             else:
                 self.SetPROM_8K_Bank( 4, data )
+                
         elif addr ==0x9000:
             if data != 0xFF:
                 data &= 0x03
@@ -51,6 +52,7 @@ class MAPPER(MAPPER,NES):
                 elif data == 2:NES.Mirroring = 2 #VRAM_MIRROR4L
                 else:NES.Mirroring = 3 #VRAM_MIRROR4H
                 NES.MirrorXor = 0x400 if data else 0x800
+                
         elif addr == 0x9008:
             self.reg[8] = data & 0x02
 
@@ -59,56 +61,52 @@ class MAPPER(MAPPER,NES):
 
         elif 0xB000 <= addr < 0xF000: 
             if (addr & 0xF) == 0x000:
-                index = ((addr >> 12) - 11) * 2
-                register = self.reg[index]
-                register = (register & 0xF0) | (data & 0x0F)
-                self.SetVROM_1K_Bank( index, register )
+                page = ((addr >> 12) - 11) * 2
+                self.reg[page] = (self.reg[page] & 0xF0) | (data & 0x0F)
+                self.SetVROM_1K_Bank( page, self.reg[page] )
                 
             elif (addr & 0xF) in (0x001,0x004):
-                index = ((addr >> 12) - 11) * 2
-                register = self.reg[index]
-                register = (register & 0x0F) | ((data & 0x0F) << 4)
-                self.SetVROM_1K_Bank( index, register)
+                page = ((addr >> 12) - 11) * 2
+                self.reg[page] = (self.reg[page] & 0x0F) | ((data & 0x0F) << 4)
+                self.SetVROM_1K_Bank( page, self.reg[page])
                             
             elif (addr & 0xF) in (0x002,0x008):
-                index = ((addr >> 12) - 11) * 2 + 1
-                register = self.reg[index]
-                register = (register & 0xF0) | (data & 0x0F)
-                self.SetVROM_1K_Bank( index, register )
+                page = ((addr >> 12) - 11) * 2 + 1
+                self.reg[page] = (self.reg[page] & 0xF0) | (data & 0x0F)
+                self.SetVROM_1K_Bank( page, self.reg[page] )
 
                             
             elif (addr & 0xF) in (0x003,0x00C):
-                index = ((addr >> 12) - 11) * 2 + 1
-                register = self.reg[index]
-                register = (register & 0x0F) | ((data & 0x0F) << 4);
-                self.SetVROM_1K_Bank( index, register )
+                page = ((addr >> 12) - 11) * 2 + 1
+                self.reg[page] = (self.reg[page] & 0x0F) | ((data & 0x0F) << 4);
+                self.SetVROM_1K_Bank( page, self.reg[page] )
 
         elif addr == 0xF008:
-            irq_enable = data & 0x03
-            if( irq_enable & 0x02 ):
-                irq_counter = irq_latch
-                irq_clock = 0
-            irq_occur = 0
+            self.irq_enable = data & 0x03
+            if( self.irq_enable & 0x02 ):
+                self.irq_counter = self.irq_latch
+                self.irq_clock = 0
+            self.irq_occur = 0
 
             
 			
         elif addr == 0xF00C:
-            irq_enable = (irq_enable & 0x01) * 3
-            irq_occur = 0
+            self.irq_enable = (self.irq_enable & 0x01) * 3
+            self.irq_occur = 0
                     
 
     def Clock(self,cycles):
-        if( irq_enable & 0x02 ):
-            irq_clock += cycles
-            if( irq_clock >= 0x72 ):
-                    irq_clock -= 0x72
-                    if( irq_counter == 0xFF ):
-                        irq_occur = 0xFF
-                        irq_counter = irq_latch
-                        irq_enable = (irq_enable & 0x01) * 3
+        if( self.irq_enable & 0x02 ):
+            self.irq_clock += cycles
+            if( self.irq_clock >= 0x72 ):
+                    self.irq_clock -= 0x72
+                    if(self. irq_counter == 0xFF ):
+                        self.irq_occur = 0xFF
+                        self.irq_counter = self.irq_latch
+                        self.irq_enable = (self.irq_enable & 0x01) * 3
                     else:
-                        irq_counter += 1
-            if( irq_occur ):
+                        self.irq_counter += 1
+            if( self.irq_occur ):
                 return True
 
 if __name__ == '__main__':

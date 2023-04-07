@@ -46,6 +46,8 @@ class MAPPER(NES):
     
     def ExWrite(self, addr, data ):
         pass
+    def Clock(self, cycle ):
+        pass
     
 
     def SetPROM_8K_Bank(self, page, bank):
@@ -84,6 +86,15 @@ class MAPPER(NES):
         NES.VRAM[page*0x400:page*0x400 + 0x400] = NES.VROM[0x0400*bank:0x0400*bank + 0x400]
         #print NES.VRAM[0:100]
 
+    def SetCRAM_1K_Bank(self, page, bank):
+        bank &= 0x1F
+        CRAM = 32768 + 0x0400 * bank
+        NES.VRAM[page*0x400:page*0x400 + 0x400] = NES.VROM[CRAM:CRAM + 0x400]
+
+    def SetVRAM_1K_Bank(self, page, bank):
+        bank &= 0x3
+        VRAM = 4096 + 0x0400 * bank
+        NES.VRAM[page*0x400:page*0x400 + 0x400] = NES.VROM[VRAM:VRAM + 0x400]
 
 
 if __name__ == '__main__':

@@ -382,6 +382,7 @@ class neshardware(MMC, NES):
                 self.MMC3_Sync()
                 
         elif Address == 0xA000:
+            NES.Mirroring = 1 if value else 0
             NES.MirrorXor = 0x400 if value else 0x800
 
         elif Address == 0xA001:
@@ -435,7 +436,7 @@ def get_roms_mapper(roms_list):
         
 def show_choose(ROMS_INFO):
     for item in ROMS_INFO:
-        print item
+        print item[0],item[1],item[2]
     print "---------------"
     print 'choose a number as a selection.'
 

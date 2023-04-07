@@ -231,7 +231,7 @@ class cpu6502(MMC,NES):
             print args
     
     def exec6502(self):
-
+        instruction_dic = self.instruction_dic
         while NES.CPURunning:
             #self.debug()
             if self.FrameFlag or self.MapperWriteFlag:
@@ -243,12 +243,13 @@ class cpu6502(MMC,NES):
 
             #self.exec_opcode(instruction[self.opcode])
             try:
-                self.instruction_dic.get(instruction[self.opcode])()
+                instruction_dic.get(instruction[self.opcode])()
             except:
                 print "Invalid opcode - %s" %hex(instruction[self.opcode])
                 print (traceback.print_exc())
                 
-                
+            if self.MAPPER.Clock(self.clockticks6502):self.irq6502()
+            
             if self.clockticks6502 > self.maxCycles1:
                 #self.log("Normal:",self.status()) ############################
                 
@@ -260,9 +261,10 @@ class cpu6502(MMC,NES):
                     
                     
                 if NES.Mapper == 4:
-                    if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.Control1) == True :
+                    if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.Control1):
                         self.irq6502()
 
+                
                         
                 if self.PPU.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
@@ -928,8 +930,8 @@ class cpu6502(MMC,NES):
         if addr == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
             return self.bank0[Address & 0x7FF]
         elif addr >0x03:
-            return self.MAPPER.Read(Address)
-            '''
+            #return self.MAPPER.Read(Address)
+            
             if addr == 0x04:                      #Address >=0x8000 and Address <=0x9FFF:
                 return self.bank8[Address - 0x8000]
             elif addr == 0x05:                      #Address >=0xA000 and Address <=0xBFFF:
@@ -937,7 +939,7 @@ class cpu6502(MMC,NES):
             elif addr == 0x06:                      #Address >=0xC000 and Address <=0xDFFF:
                 return self.bankC[Address - 0xC000]
             elif addr == 0x07:                      #Address >=0xE000 and Address <=0xFFFF:
-                return self.bankE[Address - 0xE000]'''
+                return self.bankE[Address - 0xE000]
 
         
         elif addr == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
