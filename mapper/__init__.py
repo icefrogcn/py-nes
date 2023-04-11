@@ -20,6 +20,8 @@ class MAPPER(NES):
         print 'init Write'
 
     def Read(self,address):#$8000-$FFFF Memory read(Dummy)
+        return NES.Read(self,address)
+        '''
         addr = address >> 13
         if addr == 0x04:                      #Address >=0x8000 and Address <=0x9FFF:
             return NES.bank8[address & 0x1FFF]
@@ -28,9 +30,8 @@ class MAPPER(NES):
         elif addr == 0x06:                      #Address >=0xC000 and Address <=0xDFFF:
             return NES.bankC[address & 0x1FFF]
         elif addr == 0x07:                      #Address >=0xE000 and Address <=0xFFFF:
-            #print hex(address - 0xE000),hex(len(NES.bankE))
             return NES.bankE[address & 0x1FFF]
-
+'''
     def ReadLow(self,address):#$4100-$7FFF Lower Memory read
         if( address >= 0x6000 ):
 	    return  NES.bank6[address & 0x1FFF]
@@ -67,12 +68,17 @@ class MAPPER(NES):
         self.SetPROM_8K_Bank( page+0, bank*2+0 )
         self.SetPROM_8K_Bank( page+1, bank*2+1 )
         
+    def SetPROM_32K_Bank0(self,bank):
+        self.SetPROM_8K_Bank( 4, bank*4 + 0 )
+	self.SetPROM_8K_Bank( 5, bank*4 + 1 )
+	self.SetPROM_8K_Bank( 6, bank*4 + 2 )
+	self.SetPROM_8K_Bank( 7, bank*4 + 3 )
+
     def SetPROM_32K_Bank(self,bank0,bank1,bank2,bank3):
         self.SetPROM_8K_Bank( 4, bank0 )
 	self.SetPROM_8K_Bank( 5, bank1 )
 	self.SetPROM_8K_Bank( 6, bank2 )
 	self.SetPROM_8K_Bank( 7, bank3 )
-
 	
     def SetVROM_8K_Bank(self,bank):
         #val1 = MaskVROM(val1, NES.VROM_8K_SIZE)
@@ -87,11 +93,13 @@ class MAPPER(NES):
         #print NES.VRAM[0:100]
 
     def SetCRAM_1K_Bank(self, page, bank):
+        print "Set CRAM"
         bank &= 0x1F
         CRAM = 32768 + 0x0400 * bank
         NES.VRAM[page*0x400:page*0x400 + 0x400] = NES.VROM[CRAM:CRAM + 0x400]
 
     def SetVRAM_1K_Bank(self, page, bank):
+        print "Set VRAM"
         bank &= 0x3
         VRAM = 4096 + 0x0400 * bank
         NES.VRAM[page*0x400:page*0x400 + 0x400] = NES.VROM[VRAM:VRAM + 0x400]

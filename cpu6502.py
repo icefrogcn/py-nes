@@ -103,7 +103,10 @@ class cpu6502(MMC,NES):
     bankE = [0] * 8192 #As Byte
     '''
 
-    bank0 = [0]*2048 #As Byte ' RAM            主工作内存
+    bank0 = [0]* 0x800 #As Byte ' RAM            主工作内存
+    RAM = [0] * 0x800 #As Byte
+
+
     totalFrame = 0
     
     Frames = 0
@@ -304,14 +307,15 @@ class cpu6502(MMC,NES):
         #"DF: reordered the the case's. Made address long (was variant)."
     
     def exec_opcode(self,instruction_opcode):
-        try:
-            self.instruction_dic[instruction_opcode]()
-        except:
-            print "Invalid opcode - %s" %hex(instruction_opcode)
-            print (traceback.print_exc())
+            try:
+                self.instruction_dic[instruction_opcode]()
+            except:
+                print "Invalid opcode - %s" %hex(instruction_opcode)
+                print (traceback.print_exc())
             
 
     ' This is where all 6502 instructions are kept.'
+    #@jit
     def adc6502(self):
         
         self.adrmode(self.opcode)
@@ -923,28 +927,19 @@ class cpu6502(MMC,NES):
     def Read6502_2(self,Address):
         return self.Read6502(Address) + (self.Read6502(Address + 1) << 8)
 
-    #@deco
+    #@jit
     def Read6502(self, Address):
         addr = Address >> 13
 
         if addr == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
             return self.bank0[Address & 0x7FF]
-        elif addr >0x03:
-            #return self.MAPPER.Read(Address)
-            
-            if addr == 0x04:                      #Address >=0x8000 and Address <=0x9FFF:
-                return self.bank8[Address - 0x8000]
-            elif addr == 0x05:                      #Address >=0xA000 and Address <=0xBFFF:
-                return self.bankA[Address - 0xA000]
-            elif addr == 0x06:                      #Address >=0xC000 and Address <=0xDFFF:
-                return self.bankC[Address - 0xC000]
-            elif addr == 0x07:                      #Address >=0xE000 and Address <=0xFFFF:
-                return self.bankE[Address - 0xE000]
 
-        
+        elif addr >0x03:
+            return self.MAPPER.Read(Address)
+       
         elif addr == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
             
-            return self.PPU.Read(Address)
+            if self.PPU.Running:return self.PPU.Read(Address)
 
         elif (Address >=0x4000 and Address <=0x4013) or Address == 0x4015:
             return self.APU.Sound[Address - 0x4000]
@@ -959,7 +954,7 @@ class cpu6502(MMC,NES):
             #pass
             return self.JOYPAD2.Read()
         elif addr == 0x03: #Address == 0x6000 -0x7FFF:
-            print "Read SRAM "
+            #print "Read SRAM "
             return self.MAPPER.ReadLow(Address)
         else:
             print hex(Address)
@@ -977,22 +972,18 @@ class cpu6502(MMC,NES):
         if addr == 0x00:
             'Address >=0x0 and Address <=0x1FFF:'
             self.bank0[Address & 0x7FF] = value
+            
         elif addr2 == 0x01: #Address >=0x8000 and Address <=0xFFFF:
-            if NES.newmapper_debug:
-                self.MAPPER.Write(Address, value)
-            else:
-                self.MapperWrite(Address, value)
-            pass
+            self.MapperWrite(Address, value)
             
         elif addr == 0x01:
             '$2000-$3FFF'
             #print "PPU Write" ,Address
-            self.PPU.Write(Address,value)
+            if self.PPU.Running:self.PPU.Write(Address,value)
+            
         elif addr == 0x02:
             '$4000-$5FFF'
-            if Address < 0x4100:
-                pass
-                self.WriteReg(Address,value)
+            if Address < 0x4100:self.WriteReg(Address,value)
         
         elif addr == 0x03:#Address >= 0x6000 and Address <= 0x7FFF:
             return self.MAPPER.WriteLow(Address, value)
@@ -1028,9 +1019,16 @@ class cpu6502(MMC,NES):
             print addr
 
     def MapperWrite(self,Address, value):
-        self.MapperWriteFlag = True
-        self.MapperWriteData['Address'] = Address
-        self.MapperWriteData['value'] = value
+        if NES.newmapper_debug:
+                exsound_enable =  self.MAPPER.Write(Address, value)
+                
+                if exsound_enable:
+                    self.APU.ExWrite(Address, value)
+                    
+        else:        
+            self.MapperWriteFlag = True
+            self.MapperWriteData['Address'] = Address
+            self.MapperWriteData['value'] = value
 
 @jit
 def a(value):

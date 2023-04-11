@@ -5,7 +5,7 @@ import time
 import datetime
 
 import numpy as np
-#from numba import jit
+from numba import jit
 
 #自定义类
 from wrfilemod import read_file_to_array
@@ -49,15 +49,18 @@ class NES(object):
 
         # NES Hardware defines
 
-    RAM = [0] * 0x800 #As Byte
-
 
     bank6 = [0] * 0x2000 #As Byte ' SaveRAM        璁板繂鍐呭瓨
+    '''
     bank8 = [0] * 0x2000 #As Byte '8-E are PRG-ROM.涓荤▼搴
     bankA = [0] * 0x2000 #As Byte
     bankC = [0] * 0x2000 #As Byte
     bankE = [0] * 0x2000 #As Byte
-
+'''
+    bank8 = np.zeros(0x2000, np.uint8) 
+    bankA = np.zeros(0x2000, np.uint8) 
+    bankC = np.zeros(0x2000, np.uint8) 
+    bankE = np.zeros(0x2000, np.uint8) 
 
         
     VRAM = np.zeros(0x4000, np.uint8) #3FFF #As Byte, VROM() As Byte  ' Video RAM
@@ -143,8 +146,17 @@ class NES(object):
         self.debug = False
 
 
-
-
+    #@jit
+    def Read(self,address):
+        addr = address >> 13
+        if addr == 0x04:                      #Address >=0x8000 and Address <=0x9FFF:
+            return NES.bank8[address & 0x1FFF]
+        elif addr == 0x05:                      #Address >=0xA000 and Address <=0xBFFF:
+            return NES.bankA[address & 0x1FFF]
+        elif addr == 0x06:                      #Address >=0xC000 and Address <=0xDFFF:
+            return NES.bankC[address & 0x1FFF]
+        elif addr == 0x07:                      #Address >=0xE000 and Address <=0xFFFF:
+            return NES.bankE[address & 0x1FFF]        
 
 
 

@@ -120,6 +120,7 @@ class MAPPER(MAPPER,NES):
         elif addr == 0xF800:
             if self.exsound_enable:
                 print "apu_ExWrite"
+                return 1
             self.reg[2] = data
             
                     

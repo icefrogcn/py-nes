@@ -57,7 +57,12 @@ class APU(NES):
             n = Address >> 2
             if n < 4 :
                 self.ChannelWrite[n] = True
-                                  
+                
+    def ExWrite(self, addr, data):
+        if addr == 0x0:
+            pass
+            
+        
     def updateSounds(self):
         #print "Playing"
         if self.doSound :

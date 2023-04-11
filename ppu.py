@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import numba as nb
 from numba import jit
+from numba import jitclass
 
 from nes import NES
 from pal import BGRpal
@@ -41,6 +42,7 @@ SP_VMIRROR_BIT	=	0x80
 SP_HMIRROR_BIT	=	0x40
 SP_PRIORITY_BIT	=	0x20
 SP_COLOR_BIT	=	0x03
+
 
 
 class PPU(NES):
@@ -575,14 +577,14 @@ class PPU(NES):
         
         PatternTable_Array = PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + 0x1000])
 
-        if NES.Mirroring:
+        if NES.Mirroring == 1:
             self.FrameBuffer = self.RenderNameTableH(PatternTable_Array, 0,1)
 
         elif NES.Mirroring == 0 :
             
             self.FrameBuffer = self.RenderNameTableV(PatternTable_Array, 0,2)
             
-        elif NES.FourScreen:
+        elif NES.Mirroring == 2:
             self.FrameBuffer = self.RenderNameTables(PatternTable_Array, 0,1,2,3)
         else:
             self.FrameBuffer = self.RenderNameTables(PatternTable_Array, 0,1,2,3)
@@ -651,11 +653,11 @@ def paintBuffer(FrameBuffer,Pal,Palettes):
             img[i, j] = Pal[Palettes[FrameBuffer[i, j]]]
     return img
 
-@jit
+#@jit
 def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHIT):
     for spriteIndex in range(63,-1,-1):
         spriteOffset =  spriteIndex * 4
-        if SPRAM[spriteOffset] > 240: continue
+        if SPRAM[spriteOffset] >= 240: continue
         
         spriteY = SPRAM[spriteOffset] + vScroll
         spriteX = SPRAM[spriteOffset + 3] + HScroll
@@ -686,8 +688,9 @@ def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHI
         SpriteArr = np.row_stack((chr_l,chr_h)) if SP16 else chr_l
 
         
-        if SPRAM[spriteOffset + 2] & SP_COLOR_BIT:
-            SpriteArr += (SPRAM[spriteOffset + 2] & SP_COLOR_BIT) << 2 
+        #if SPRAM[spriteOffset + 2] & 0x03:#SP_COLOR_BIT = 0x03
+        SpriteArr += (SPRAM[spriteOffset + 2] & 0x03) << 2
+        #SpriteArr[SpriteArr & 3 == 0] = 0
             
         spriteW = 8 
         spriteH = SpriteArr.shape[0] 
@@ -695,13 +698,14 @@ def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHI
         if BG.shape[0] - spriteY > spriteH and BG.shape[1] - spriteX > spriteW :
             BGPriority = SPRAM[spriteOffset + 2] & SP_PRIORITY_BIT
             if BGPriority:
-                BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW] == 0] \
-                                   = SpriteArr[[BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW] == 0]]
+                BG0 = [BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW] & 3 == 0]
+                BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][BG0] \
+                                   = SpriteArr[[BG0]]
             else:
-                if SPHIT[SPRAM[spriteOffset]] == 0:
+                #if SPHIT[SPRAM[spriteOffset]] == 0:
                     BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][SpriteArr & 3 > 0] = SpriteArr[SpriteArr & 3 > 0] + 0x10#<<1#[0:spriteH,0:spriteW]
-                else:
-                    BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW] = SpriteArr #+ 0x10
+                #else:
+                #    BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW] = SpriteArr #+ 0x10
         
     return BG
 

@@ -6,9 +6,9 @@ import time
 import datetime
 import threading
 
-import cv2
 
 import keyboard
+import cv2
 
 #from numba import jit
 
@@ -52,8 +52,7 @@ class neshardware(MMC, NES):
 
         # NES Hardware defines
 
-    CPU_RAM = [0]* 0x10000
-
+    
 
     ROM = ROM()
     reg8 = 0 # As Byte
