@@ -119,12 +119,15 @@ class neshardware(MMC, NES):
         
         try:
             mapper = __import__('mapper',fromlist = ['mapper%d' %self.Mapper])
-            self.cpu6502.MAPPER = eval('mapper.mapper%d.MAPPER()' %self.Mapper)
-            
-            if self.cpu6502.MAPPER.reset():
-                print "NEW MAPPER process"
-                NES.newmapper_debug = 1
-                LoadNES = 1
+            self.cpu6502.MAPPER = eval('mapper.mapper%d.MAPPER(self.cpu6502.PRGRAM)' %self.Mapper)
+            self.MAPPER = eval('mapper.mapper%d.MAPPER(self.cpu6502.PRGRAM)' %self.Mapper)
+            self.MAPPER.reset()
+            print self.cpu6502.PRGRAM
+            #self.cpu6502.PRGRAM = self.MAPPER.reset()
+            print  type(self.cpu6502.PRGRAM)
+            print "NEW MAPPER process"
+            NES.newmapper_debug = 1
+            LoadNES = 1
         except:
             print (traceback.print_exc())
             NES.newmapper_debug = 0

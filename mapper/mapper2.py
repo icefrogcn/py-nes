@@ -6,14 +6,13 @@ sys.path.append("..")
 
 #MAPPER
 from mapper import MAPPER
-from mmc import MMC
+
 from nes import NES
 
 
-class MAPPER(MAPPER,MMC,NES):
+class MAPPER(MAPPER,NES):
 
-    def __init__(self,debug = False):
-         pass
+
 
     def reset(self):
         self.SetPROM_32K_Bank(0, 1, NES.PROM_8K_SIZE-2, NES.PROM_8K_SIZE-1)

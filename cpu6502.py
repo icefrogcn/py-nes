@@ -86,16 +86,19 @@ class cpu6502(MMC,NES):
     SmartExec = False # As Boolean
     realframes = 0 # As Long 'actual # of frames rendered
 
-    '''
+
+    CPU_MEM_BANK = 8
+    RAM = np.zeros(0x2000,np.uint8)
+    PRGRAM = np.zeros((CPU_MEM_BANK,0x2000), dtype=np.uint8)
     bank0 = np.zeros(2048,np.uint8)#[0]*2048 #As Byte ' RAM            主工作内存
-    bank6 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte ' SaveRAM        记忆内存
+    #bank6 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte ' SaveRAM        记忆内存
     bank8 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte '8-E are PRG-ROM.主程序
     bankA = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
     bankC = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
     bankE = np.zeros(0x2000,np.uint8)#[0] * 8192 #As Byte
 
 
-    
+    '''
     bank6 = [0]*8192 #As Byte ' SaveRAM        记忆内存
     bank8 = [0]*8192 #As Byte '8-E are PRG-ROM.主程序
     bankA = [0]*8192 #As Byte
@@ -103,10 +106,10 @@ class cpu6502(MMC,NES):
     bankE = [0] * 8192 #As Byte
     '''
 
-    bank0 = [0]* 0x800 #As Byte ' RAM            主工作内存
-    RAM = [0] * 0x800 #As Byte
+    #bank0 = [0]* 0x800 #As Byte ' RAM            主工作内存
+    
 
-
+    
     totalFrame = 0
     
     Frames = 0
@@ -251,12 +254,13 @@ class cpu6502(MMC,NES):
                 print "Invalid opcode - %s" %hex(instruction[self.opcode])
                 print (traceback.print_exc())
                 
-            if self.MAPPER.Clock(self.clockticks6502):self.irq6502()
+            #if self.MAPPER.Clock(self.clockticks6502):self.irq6502()
             
             if self.clockticks6502 > self.maxCycles1:
                 #self.log("Normal:",self.status()) ############################
                 
-                self.PPU.RenderScanline()
+                if self.PPU.CurrentLine <= 239:
+                    self.PPU.RenderScanline()
 
                 self.PPU.CurrentLine +=  1
 
@@ -294,7 +298,7 @@ class cpu6502(MMC,NES):
         
                     
                     NES.Frames += 1
-                        
+                    print NES.Frames
                     self.PPU.Status = 0x0
                     self.FrameFlag = True
                     
@@ -932,10 +936,10 @@ class cpu6502(MMC,NES):
         addr = Address >> 13
 
         if addr == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
-            return self.bank0[Address & 0x7FF]
+            return RamRead(Address,self.bank0)
 
         elif addr >0x03:
-            return self.MAPPER.Read(Address)
+            return MapperRead(Address,self.PRGRAM)
        
         elif addr == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
             
@@ -971,7 +975,8 @@ class cpu6502(MMC,NES):
         addr2 = Address >> 15
         if addr == 0x00:
             'Address >=0x0 and Address <=0x1FFF:'
-            self.bank0[Address & 0x7FF] = value
+            #self.bank0[Address & 0x7FF] = value
+            RamWrite(Address,value,self.bank0)
             
         elif addr2 == 0x01: #Address >=0x8000 and Address <=0xFFFF:
             self.MapperWrite(Address, value)
@@ -1008,7 +1013,8 @@ class cpu6502(MMC,NES):
             self.APU.Write(addr,value)
         elif addr == 0x14:
             #print 'DF: changed gameImage to bank0. This should work'
-            MemCopy(self.PPU.SpriteRAM, 0, self.bank0, (value * 0x100 ), 0x100)
+            self.PPU.SpriteRAM = SpriteRamWrite(value,self.bank0)
+            #MemCopy(self.PPU.SpriteRAM, 0, self.bank0, (value * 0x100 ), 0x100)
         elif addr == 0x16:
             pass
             self.JOYPAD1.Joypad_Count = 0x0
@@ -1019,6 +1025,7 @@ class cpu6502(MMC,NES):
             print addr
 
     def MapperWrite(self,Address, value):
+        #print "MapperWrite"
         if NES.newmapper_debug:
                 exsound_enable =  self.MAPPER.Write(Address, value)
                 
@@ -1029,31 +1036,63 @@ class cpu6502(MMC,NES):
             self.MapperWriteFlag = True
             self.MapperWriteData['Address'] = Address
             self.MapperWriteData['value'] = value
+    
+    def MapperRead(self,address,PRGRAM):
+        bank = address >> 13
+        addr = address & 0x1FFF
+        return PRGRAM[bank][addr]
+        '''if addr == 0x04:                      #Address >=0x8000 and Address <=0x9FFF:
+            return self.bank8[address & 0x1FFF]
+        elif addr == 0x05:                      #Address >=0xA000 and Address <=0xBFFF:
+            return self.bankA[address & 0x1FFF]
+        elif addr == 0x06:                      #Address >=0xC000 and Address <=0xDFFF:
+            return self.bankC[address & 0x1FFF]
+        elif addr == 0x07:                      #Address >=0xE000 and Address <=0xFFFF:
+            return self.bankE[address & 0x1FFF]'''
+        
 
 @jit
+def MapperRead(address,PRGRAM):
+        bank = address >> 13
+        addr = address & 0x1FFF
+        return PRGRAM[bank][addr]
+
+@jit
+def RamRead(address,bank0):
+    return bank0[address & 0x7FF]
+
+@jit
+def RamWrite(address,value,bank0):
+    bank0[address & 0x7FF] = value
+
+@jit
+def SpriteRamWrite(value,bank0):
+    return bank0[value * 0x100:value * 0x100 + 0x100]
+    
+@jit
 def a(value):
-    for i in range(20000000):
+    for i in range(2):
         #value = True
         value = value & 0xFF
 @jit
 def a1(value):
-    for i in range(20000000):
+    for i in range(2):
         #value = 1
         value = value & 0b11111111
         #value &= 0xFF
 
 def b(value):
-    for i in range(20000000):
+    for i in range(2):
         value = 1
         value = value & 0xFF
 
 def b1(value):
-    for i in range(20000000):
+    for i in range(2):
         value = 333 #& 0xFF
         value &= 0xFF
 
 if __name__ == '__main__':
-    #cpu = cpu6502()
+    cpu = cpu6502()
     #cpu.testspeed()
     
     #print help(cpu)

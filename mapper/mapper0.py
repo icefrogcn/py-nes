@@ -11,8 +11,8 @@ from nes import NES
 
 class MAPPER(MAPPER,NES):
 
-    def __init__(self,debug = False):
-         pass
+    #def __init__(self,debug = False):
+    #     print 'init MAPPER 0',PRGRAM.shape
 
     def reset(self):
         print "RESET MAPPER ", NES.Mapper
@@ -24,7 +24,7 @@ class MAPPER(MAPPER,NES):
         elif self.PROM_16K_SIZE == 2:	#// 32K
             self.SetPROM_32K_Bank( 0,1,2,3 )
             
-        return 1
+        #return super(MAPPER,self).reset()
 
 
 

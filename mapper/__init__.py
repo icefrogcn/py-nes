@@ -9,12 +9,12 @@ from nes import NES
 
 class MAPPER(NES):
     
-    def __init__(self,debug = False):
-        pass
-        
+    def __init__(self,PRGRAM):
+        print 'init MAPPER',PRGRAM.shape
+        self.PRGRAM = PRGRAM
 
     def reset(self):
-        return 0
+        return self.PRGRAM
 
     def Write(self):#$8000-$FFFF Memory write
         print 'init Write'
@@ -55,14 +55,16 @@ class MAPPER(NES):
 
 	bank %= NES.PROM_8K_SIZE
         #print 'DEBUG: NES.PROM_8K_SIZE',NES.PROM_8K_SIZE
-        if page == 4:
+	self.PRGRAM[page] = self.PROM[0x2000*bank:0x2000*bank+0x2000]
+        '''if page == 4:
             NES.bank8 = self.PROM[0x2000*bank:0x2000*bank+0x2000]
         elif page == 5:
             NES.bankA = self.PROM[0x2000*bank:0x2000*bank+0x2000]
         elif page == 6:
             NES.bankC = self.PROM[0x2000*bank:0x2000*bank+0x2000]
         elif page == 7:
-            NES.bankE = self.PROM[0x2000*bank:0x2000*bank+0x2000]
+            NES.bankE = self.PROM[0x2000*bank:0x2000*bank+0x2000]'''
+        
             
     def SetPROM_16K_Bank(self,page, bank):
         self.SetPROM_8K_Bank( page+0, bank*2+0 )

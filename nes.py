@@ -57,10 +57,10 @@ class NES(object):
     bankC = [0] * 0x2000 #As Byte
     bankE = [0] * 0x2000 #As Byte
 '''
-    bank8 = np.zeros(0x2000, np.uint8) 
-    bankA = np.zeros(0x2000, np.uint8) 
-    bankC = np.zeros(0x2000, np.uint8) 
-    bankE = np.zeros(0x2000, np.uint8) 
+    #bank8 = np.zeros(0x2000, np.uint8) 
+    #bankA = np.zeros(0x2000, np.uint8) 
+    #bankC = np.zeros(0x2000, np.uint8) 
+    #bankE = np.zeros(0x2000, np.uint8) 
 
         
     VRAM = np.zeros(0x4000, np.uint8) #3FFF #As Byte, VROM() As Byte  ' Video RAM

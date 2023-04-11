@@ -58,7 +58,7 @@ class PPU(NES):
         
         #6502中没有寄存器，故使用工作内存地址作为寄存器
         self.PPU_Write = {
-            0x2000:self.PPU_Control1_W,
+            #0x2000:self.PPU_Control1_W,
             #0x2001:self.PPU_Control2_W,
             #0x2003:self.SPR_RAM_Address_W,
             #0x2004:self.SPR_RAM_W,
@@ -214,10 +214,6 @@ class PPU(NES):
             print (traceback.print_exc())
             return 0
             
-    def PPU_Control1_W(self,value):
-        #print value
-        self.Control1 = value
-
         
     def Write(self,addr,value):
         '''try:
@@ -226,8 +222,8 @@ class PPU(NES):
             print "Invalid PPU Write - %s : %s" %hex(addr),hex(value)
 '''
         if addr == 0x2000:
-            #self.Control1 = value
-            self.PPU_Control1_W(value)
+            self.Control1 = value
+           
        
         elif addr == 0x2001:
             self.Control2 = value
@@ -235,16 +231,16 @@ class PPU(NES):
             self.EmphVal = (value & 0xE0) * 2
             
         elif addr == 0x2003:
-            #print "Write SpriteAddress"
+            print "Write SpriteAddress:",value
             self.SpriteAddress = value
             
         elif addr == 0x2004:
-            #print "Write SpriteRAM"
+            print "Write SpriteRAM:",value
             self.SpriteRAM[self.SpriteAddress] = value
             self.SpriteAddress = (self.SpriteAddress + 1) & 0xFF
             
         elif addr == 0x2005:
-            #print "Write PPU Scroll Register(W2)"
+            print "Write PPU Scroll Register(W2)"
             if self.AddressIsHi :
                 self.HScroll = value
                 self.AddressIsHi = 0
@@ -671,16 +667,16 @@ def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHI
         chr_h = PatternTableArray[chr_index + 1]
  
             
-        if SPRAM[spriteOffset + 2] & SP_HMIRROR_BIT:
-            chr_l = np.flip(chr_l,1)      
+        if SPRAM[spriteOffset + 2] & 0x40:
+            chr_l = chr_l[:,::-1]    
             if SP16:
-                chr_h = np.flip(chr_h,1)
+                chr_h = chr_h[:,::-1]
                 
 
-        if SPRAM[spriteOffset + 2] & SP_VMIRROR_BIT:
-            chr_l = np.flip(chr_l,0)     
+        if SPRAM[spriteOffset + 2] & 0x80:
+            chr_l = chr_l[::-1] 
             if SP16:
-                chr_h = np.flip(chr_h,0)
+                chr_h = chr_h[::-1]
                 chr_l,chr_h = chr_h,chr_l
 
             
@@ -688,9 +684,8 @@ def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHI
         SpriteArr = np.row_stack((chr_l,chr_h)) if SP16 else chr_l
 
         
-        #if SPRAM[spriteOffset + 2] & 0x03:#SP_COLOR_BIT = 0x03
-        SpriteArr += (SPRAM[spriteOffset + 2] & 0x03) << 2
-        #SpriteArr[SpriteArr & 3 == 0] = 0
+        SpriteArr = np.add(SpriteArr, (SPRAM[spriteOffset + 2] & 0x03) << 2)
+
             
         spriteW = 8 
         spriteH = SpriteArr.shape[0] 
@@ -702,11 +697,8 @@ def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHI
                 BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][BG0] \
                                    = SpriteArr[[BG0]]
             else:
-                #if SPHIT[SPRAM[spriteOffset]] == 0:
-                    BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][SpriteArr & 3 > 0] = SpriteArr[SpriteArr & 3 > 0] + 0x10#<<1#[0:spriteH,0:spriteW]
-                #else:
-                #    BG[spriteY:spriteY + spriteH,spriteX:spriteX + spriteW] = SpriteArr #+ 0x10
-        
+                BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][SpriteArr & 3 > 0] = SpriteArr[SpriteArr & 3 > 0] + 0x10#<<1#[0:spriteH,0:spriteW]
+                
     return BG
 
 

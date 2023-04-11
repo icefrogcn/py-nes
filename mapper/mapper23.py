@@ -18,11 +18,9 @@ class MAPPER(MAPPER,NES):
     irq_clock = 0
     irq_occur = 0
     
-    def __init__(self,debug = False):
-         pass
+    addrmask = 0xFFFF
 
     def reset(self):
-        self.addrmask = 0xFFFF
 
 	for i in range(8) :
 	    self.reg[i] = i
@@ -45,12 +43,15 @@ class MAPPER(MAPPER,NES):
                 self.SetPROM_8K_Bank( 4, data )
                 
         elif addr ==0x9000:
+            print "data",data
             if data != 0xFF:
+                
                 data &= 0x03
                 if data == 0:NES.Mirroring = 0
                 elif data == 1:NES.Mirroring = 1
                 elif data == 2:NES.Mirroring = 2 #VRAM_MIRROR4L
                 else:NES.Mirroring = 3 #VRAM_MIRROR4H
+                print "Mirroring",NES.Mirroring
                 NES.MirrorXor = 0x400 if data else 0x800
                 
         elif addr == 0x9008:

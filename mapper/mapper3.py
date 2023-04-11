@@ -12,9 +12,6 @@ from nes import NES
 
 class MAPPER(MAPPER,NES):
 
-    def __init__(self,debug = False):
-         pass
-
     def reset(self):
         self.SetVROM_8K_Bank(0)
         if self.PROM_16K_SIZE == 1: # 16K only
