@@ -6,11 +6,11 @@ sys.path.append("..")
 
 #MAPPER
 from mapper import MAPPER
-from mmc import MMC
+
 from nes import NES
 
 
-class MAPPER(MAPPER,MMC,NES):
+class MAPPER(MAPPER,NES):
 
     last_addr = 0
     patch = 0
@@ -23,9 +23,6 @@ class MAPPER(MAPPER,MMC,NES):
     shift = 0
     regbuf = 0
 
-    
-    def __init__(self,debug = False):
-         pass
 
     def reset(self):
         self.reg[0] = 0x0C
@@ -44,12 +41,12 @@ class MAPPER(MAPPER,MMC,NES):
         return 1
 
     
-    def Write(self,addr,data):#$8000-$FFFF Memory write
+    def Write(self,address,data):#$8000-$FFFF Memory write
         if( self.patch != 1 ):
-            if((addr & 0x6000) != (self.last_addr & 0x6000)):
+            if((address & 0x6000) != (self.last_addr & 0x6000)):
                 self.shift = 0
                 self.regbuf = 0
-            self.last_addr = addr
+            self.last_addr = address
         
         if( data & 0x80 ):
             self.shift = 0
@@ -63,10 +60,14 @@ class MAPPER(MAPPER,MMC,NES):
         self.shift += 1
 	if( self.shift < 5 ):
 		return 
-	addr = (addr & 0x7FFF) >> 13
+	addr = (address & 0x7FFF) >> 13
 	self.reg[addr] = self.regbuf
+
+	self.shift = 0
+        self.regbuf = 0
 	
-        if self.patch != 1: #For Normal Cartridge
+        if self.patch != 1:
+            print "#For Normal Cartridge"
             if addr == 0:
                 if( self.reg[0] & 0x02 ):
                     NES.Mirroring = 1 if( self.reg[0] & 0x01 ) else 0
@@ -84,19 +85,19 @@ class MAPPER(MAPPER,MMC,NES):
                         self.SetVROM_4K_Bank(4, self.reg[2] )
                         
             elif addr == 3:
-                if not (self.reg[0] & 0x08):
-                    self.SetPROM_32K_Bank0( self.reg[3]>>1 )
-                else:
+                if (self.reg[0] & 0x08):
                     if( self.reg[0] & 0x04 ):
                         self.SetPROM_16K_Bank( 4, self.reg[3] )
                         self.SetPROM_16K_Bank( 6, NES.PROM_16K_SIZE-1 )
                     else:
                         self.SetPROM_16K_Bank( 6, self.reg[3] )
                         self.SetPROM_16K_Bank( 4, 0)
-        else:#For 512K/1M byte Cartridge
-            PROM_BASE = 0;
-            if( NES.PROM_16K_SIZE >= 32 ) :
-		PROM_BASE = self.reg[1] & 0x10
+                else:
+                    self.SetPROM_32K_Bank0( self.reg[3]>>1 )
+
+
+        else:
+            print "For 512K/1M byte Cartridge"
 	    if addr == 0:
                 if( self.reg[0] & 0x02 ):
                     NES.Mirroring = 1 if( self.reg[0] & 0x01 ) else 0
@@ -108,22 +109,29 @@ class MAPPER(MAPPER,MMC,NES):
                         self.SetVROM_4K_Bank(4, self.reg[2] )
                     else:
                         self.SetVROM_8K_Bank(self.reg[1] >> 1 )
+            else:
+                print "Romancia"
+
+            PROM_BASE = 0;
+            if( NES.PROM_16K_SIZE >= 32 ) :
+		PROM_BASE = (self.reg[1] & 0x10) << 1
+
             if(self.reg[0] & 0x08):
                 if( self.reg[0] & 0x04 ):
-                    self.SetPROM_16K_Bank( 4, PROM_BASE+(self.reg[3]&0x0F) )
+                    self.SetPROM_16K_Bank(4, PROM_BASE + ((self.reg[3] & 0x0F) * 2) )
 		    if( NES.PROM_16K_SIZE >= 32 ):
-                        self.SetPROM_16K_Bank( 6, PROM_BASE+16-1 )
+                        self.SetPROM_16K_Bank( 6, PROM_BASE - 1 )
                 else:
-                    self.SetPROM_16K_Bank( 6, PROM_BASE+(self.reg[3]&0x0F) );
+                    self.SetPROM_16K_Bank( 6, PROM_BASE + ((self.reg[3] & 0x0F) * 2) );
 		    if( NES.PROM_16K_SIZE >= 32 ):
-                        self.SetPROM_16K_Bank( 4, PROM_BASE )
+                        self.SetPROM_16K_Bank( 4, PROM_BASE - 1 )
             else:
-                self.SetPROM_32K_Bank0( (self.reg[3] & (0xF + PROM_BASE))>>1 )
+                self.SetPROM_32K_Bank0((self.reg[3] & 0xF) + PROM_BASE)
                         
 		
                         
         
-
+        NES.MirrorXor = ((NES.Mirroring + 1) % 3) * 0x400
 
 
 if __name__ == '__main__':

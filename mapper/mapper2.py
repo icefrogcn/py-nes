@@ -23,6 +23,7 @@ class MAPPER(MAPPER,NES):
 
     
     def Write(self,addr,data):#$8000-$FFFF Memory write
+        #print "MAPPER W 2"
         self.SetPROM_16K_Bank(4, data )
 
 

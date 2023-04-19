@@ -20,8 +20,6 @@ class MAPPER(MAPPER,NES):
     irq_counter = 0
 
     
-    def __init__(self,debug = False):
-         pass
 
     def reset(self):
         
@@ -32,25 +30,46 @@ class MAPPER(MAPPER,NES):
 	self.exsound_enable = 0xFF
         return 1
 
+    def ReadLow(self,address):
+        print "ReadLow 19"
+        addr = address & 0xF800
+        if addr in (0x6000,0x6800,0x7000,0x7800):
+            return super(MAPPER).ReadLow(self,address)
+            
+    def WriteLow(self,address,data):
+        print "WriteLow 19"
+        addr = address & 0xF800
+        if addr == 0x5800:
+            print "irq_enable try"
+            irq_counter = (irq_counter & 0x00FF) | ((data & 0x7F) << 8)
+            self.irq_enable  = data & 0x80
+            if self.irq_enable:self.irq_counter += 1
 
+            
+        elif addr in (0x6000,0x6800,0x7000,0x7800):
+            return super(MAPPER).WriteLow(self,address,data)
+        
     def Write(self,address,data):#$8000-$FFFF Memory write
         addr = address & 0xF800
-        #print 'irq_occur: ',self.irq_occur
+
         if addr == 0x8000:
             if ( (data < 0xE0) or (self.reg[0] != 0) ):
                 self.SetVROM_1K_Bank( 0, data )
             else:
                 self.SetCRAM_1K_Bank( 0, data&0x1F )
+                
         elif addr == 0x8800:
             if ( (data < 0xE0) or (self.reg[0] != 0) ):
                 self.SetVROM_1K_Bank( 1, data )
             else:
                 self.SetCRAM_1K_Bank( 1, data&0x1F )
+                
         elif addr == 0x9000:
             if ( (data < 0xE0) or (self.reg[0] != 0) ):
                 self.SetVROM_1K_Bank( 2, data )
             else:
                 self.SetCRAM_1K_Bank( 2, data&0x1F )
+                
         elif addr == 0x9800:
             if ( (data < 0xE0) or (self.reg[0] != 0) ):
                 self.SetVROM_1K_Bank( 3, data )
@@ -62,11 +81,13 @@ class MAPPER(MAPPER,NES):
                 self.SetVROM_1K_Bank( 4, data )
             else:
                 self.SetCRAM_1K_Bank( 4, data&0x1F )
+                
         elif addr == 0xA800:
             if ( (data < 0xE0) or (self.reg[1] != 0) ):
                 self.SetVROM_1K_Bank( 5, data )
             else:
                 self.SetCRAM_1K_Bank( 5, 5 )
+                
         elif addr == 0xB000:
             if ( (data < 0xE0) or (self.reg[1] != 0) ):
                 self.SetVROM_1K_Bank( 6, data )
@@ -109,6 +130,7 @@ class MAPPER(MAPPER,NES):
         elif addr == 0xE000:
             self.SetPROM_8K_Bank( 4, data & 0x3F )
             #patch
+            
         elif addr == 0xE800:
             self.reg[0] = data & 0x40
             self.reg[1] = data & 0x80

@@ -47,11 +47,15 @@ SP_COLOR_BIT	=	0x03
 
 class PPU(NES):
 
-    CurrentLine =0 #Long 'Integer
+    CurrentLine = np.uint16(0) #Long 'Integer
 
-    NameTable = 0
+    NameTable = np.uint8(0)
 
-        
+
+    VRAM = np.zeros(0x4000, np.uint8) #3FFF #As Byte, VROM() As Byte  ' Video RAM
+
+    PPU7_Temp = np.uint8(0xFF)
+    
     def __init__(self,debug = False):
 
         self.debug = debug
@@ -67,11 +71,11 @@ class PPU(NES):
                 }
 
         self.PPU_Read = {
-            0x2000:self.PPU7_Temp,
-            0x2001:self.PPU7_Temp,
-            0x2003:self.PPU7_Temp,
-            0x2005:self.PPU7_Temp,
-            0x2006:self.PPU7_Temp,
+            0x2000:self.PPU7_T,
+            0x2001:self.PPU7_T,
+            0x2003:self.PPU7_T,
+            0x2005:self.PPU7_T,
+            0x2006:self.PPU7_T,
             
             0x2002:self.PPU_Status_R,
             0x2004:self.SPRRAM_2004_R,
@@ -80,19 +84,19 @@ class PPU(NES):
 
         self.Running = 1
         
-        self.render = True
+        self.render = False
 
         self.tilebased = False
 
     def pPPUinit(self):
-        self.Control1 = 0 # $2000
-        self.Control2 = 0 # $2001
-        self.Status = 0 # $2002
+        self.Control1 = np.uint8(0) # $2000
+        self.Control2 = np.uint8(0) # $2001
+        self.Status = np.uint8(0) # $2002
         self.SpriteAddress = 0 #As Long ' $2003
-        self.AddressHi = 0 # $2006, 1st write
+        self.AddressHi = np.uint8(0) # $2006, 1st write
         self.Address = 0 # $2006
         self.AddressIsHi = 1
-        self.PPU7_Temp = 0xFF
+        self.PPU7_Temp 
         self.ScrollToggle = 0 #$2005-$2006 Toggle PPU56Toggle
         self.HScroll = 0
         self.vScroll = 0
@@ -142,7 +146,7 @@ class PPU(NES):
 
 
         
-        self.PatternTable = 0
+        self.PatternTable = np.uint8(0)
 
         #self.Pal = np.array([[item >> 16, item >> 8 & 0xFF ,item & 0xFF] for item in NES.CPal])
         self.Pal = BGRpal
@@ -158,7 +162,7 @@ class PPU(NES):
         if self.Running == 0:
             self.render = False
             return
-        if self.render and self.debug == False:
+        if self.Running and self.render and self.debug == False:
             cv2.namedWindow('Main', cv2.WINDOW_NORMAL)
             cv2.namedWindow('Pal', cv2.WINDOW_NORMAL)
             
@@ -173,38 +177,54 @@ class PPU(NES):
         if self.render:
             cv2.destroyAllWindows()
             
-    def PPU7_Temp(self):
-        return 0xFF
+    def PPU7_T(self):
+        print 'PPU7_Temp'
+        return self.PPU7_Temp
         
     def PPU_Status_R(self):
-        ret = self.Status
+        ret = (self.PPU7_Temp & 0x1F) | self.Status
         self.AddressIsHi = True
         self.ScrollToggle = 0
-        self.Status = self.Status & 0x3F
+        if ret & 0x80:
+            
+            self.Status = self.Status & 0x60 #
+            
         return ret #PPU_Status = 0
 
     def SPRRAM_2004_R(self):
         print "Read SpiritRAM "
-        ret = self.SpriteRAM(self.SpriteAddress)
-        self.SpriteAddress = (self.SpriteAddress + 1) #& 0xFF
-        return ret
+        tmp = self.PPU7_Temp
+        self.PPU7_Temp = self.SpriteRAM(self.SpriteAddress)
+        self.SpriteAddress = (self.SpriteAddress + 1) & 0xFF
+        return tmp
 
     def VRAM_2007_R(self):
         #print "Read PPU MMC",hex(self.Address)
         #if self.Mapper == 9 or self.Mapper == 10:
             #print "Mapper 9 - 10"
-        self.Address &= 0x3FFF
-        mmc_info = 0
-        if(self.Address >= 0x3000):
-            if self.Address >= 0x3F00:
-                mmc_info = self.Palettes[self.Address & 0x1F]
         
-        #mmc_info = self.VRAM[self.Address & 0x3F1F - 1] if (self.Address >= 0x3F20 and self.Address <= 0x3FFF) else self.VRAM[self.Address - 1]
+        addr = self.Address & 0x3FFF
+        data = self.PPU7_Temp
+        
 
+
+        mmc_info = 0
+        if 0x2000<= addr <=0x2FFF:
+            pass
+            #self.PPU7_Temp = nt(mirror((addr & 0xC00) / 0x400), addr & 0x3FF)
+        elif(addr >= 0x3000):
+            if addr >= 0x3F00:
+                data &= 0x3F
+                self.PPU7_Temp = self.Palettes[addr & 0x1F]
+            addr &= 0xEFFF
+        else:
+            self.PPU7_Temp = self.VRAM[addr & 0x3FFF]
+            
+
+        self.PPU7_Temp = 0xFF #self.VRAM[addr>>10][addr&0x03FF]
         self.Address +=  32 if (self.Control1 & PPU_INC32_BIT) else 1
-        
-        #print "Read PPU addr",mmc_info,self.Address
-        return mmc_info
+
+        return data
         
     def Read(self,addr):
         try:
@@ -215,32 +235,37 @@ class PPU(NES):
             return 0
             
         
-    def Write(self,addr,value):
+    def Write(self,address,value):
         '''try:
             self.PPU_Write_dic.get(addr)(value)
         except:
             print "Invalid PPU Write - %s : %s" %hex(addr),hex(value)
 '''
-        if addr == 0x2000:
+        self.PPU7_Temp = value
+        addr = address & 0x000F
+        if addr == 0:
             self.Control1 = value
            
        
-        elif addr == 0x2001:
+        elif addr == 1:
             self.Control2 = value
             #print "Write PPU crl2"
             self.EmphVal = (value & 0xE0) * 2
             
-        elif addr == 0x2003:
-            print "Write SpriteAddress:",value
+        elif addr == 2:
+            self.PPU7_Temp = value
+            
+        elif addr == 3:
+            #print "Write SpriteAddress:",value
             self.SpriteAddress = value
             
-        elif addr == 0x2004:
-            print "Write SpriteRAM:",value
+        elif addr == 4:
+            #print "Write SpriteRAM:",value
             self.SpriteRAM[self.SpriteAddress] = value
             self.SpriteAddress = (self.SpriteAddress + 1) & 0xFF
             
-        elif addr == 0x2005:
-            print "Write PPU Scroll Register(W2)"
+        elif addr == 5:
+            #print "Write PPU Scroll Register(W2)"
             if self.AddressIsHi :
                 self.HScroll = value
                 self.AddressIsHi = 0
@@ -263,7 +288,7 @@ class PPU(NES):
             
             self.ScrollToggle = not self.ScrollToggle
                 
-        elif addr == 0x2006:
+        elif addr == 6:
             if self.AddressIsHi :
                 self.AddressHi = value * 0x100
                 self.AddressIsHi = 0
@@ -286,31 +311,19 @@ class PPU(NES):
 
             self.ScrollToggle = not self.ScrollToggle
                 
-        elif addr == 0x2007:
+        elif addr == 7:
+            self.PPU7_Temp = value
             self.Address = self.Address & 0x3FFF
-            '''if NES.Mapper == 9 or NES.Mapper == 10 :
-                if PPUAddress <= 0x1FFF :
-                    if PPUAddress > 0xFFF :
-                        pass
-                        #MMC2_latch VRAM(PPUAddress), True
-                    else:
-                        pass
-                        #MMC2_latch VRAM(PPUAddress), False'''
+
             if  0x3F00 <= self.Address:# <= 0x3FFF:
                 self.VRAM[self.Address & 0x3F1F] = value
                 self.Palettes[self.Address & 0x1F] = value
                 
-                if self.Address & 0x000F == 0x0000:
-                    self.BGPAL[0] = self.SPRPAL[0] = value
-                elif self.Address & 0x0010 == 0x0000:
-                    self.BGPAL[self.Address & 0x000F] = value
-                else:
-                    self.SPRPAL[self.Address & 0x000F] = value
                     
                #'VRAM((PPUAddress And 0x3F1F) Or 0x10) = value  'DF: All those ref's lied. The palettes don't mirror
             else:
                 if (self.Address & 0x3000) == 0x2000:
-                    self.VRAM[self.Address ^ self.MirrorXor] = value
+                    self.VRAM[self.Address ^ NES.MirrorXor] = value
                 self.VRAM[self.Address] = value
                 
             if (self.Control1 & PPU_INC32_BIT) :
@@ -348,7 +361,7 @@ class PPU(NES):
         
         self.ScanlineSPHit[self.CurrentLine] =  1 if self.Status & PPU_SPHIT_FLAG else 0
 	    
-        if self.render == False:
+        if self.Running == 0:
             if self.Control2 & PPU_SPDISP_BIT == 0 :return
             if self.Status & PPU_SPHIT_FLAG == 0 :return
             if self.CurrentLine > self.SpriteRAM[0] + 8:
@@ -618,7 +631,7 @@ class PPU(NES):
         cv2.waitKey(1)
 
     def blitPal(self):
-        cv2.imshow("Pal", np.array([[self.Pal[i] for i in (self.BGPAL + self.SPRPAL)]]))
+        cv2.imshow("Pal", np.array([[self.Pal[i] for i in self.Palettes ]]))
         cv2.waitKey(1)
 
     def blitPatternTable(self):
@@ -664,7 +677,7 @@ def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHI
         if SP16:
             chr_index = chr_index ^ (chr_index & 1)
         chr_l = PatternTableArray[chr_index]
-        chr_h = PatternTableArray[chr_index + 1]
+        chr_h = PatternTableArray[(chr_index + 1) & 0xFF]
  
             
         if SPRAM[spriteOffset + 2] & 0x40:
@@ -693,9 +706,10 @@ def RenderSpriteArray(SPRAM, PatternTableArray, BG, vScroll, HScroll, SP16, SPHI
         if BG.shape[0] - spriteY > spriteH and BG.shape[1] - spriteX > spriteW :
             BGPriority = SPRAM[spriteOffset + 2] & SP_PRIORITY_BIT
             if BGPriority:
-                BG0 = [BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW] & 3 == 0]
-                BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][BG0] \
-                                   = SpriteArr[[BG0]]
+                continue
+                BG_alpha = BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW] & 3
+                BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][BG_alpha == 0] \
+                                   = SpriteArr[BG_alpha == 0]
             else:
                 BG[spriteY:spriteY + spriteH, spriteX:spriteX + spriteW][SpriteArr & 3 > 0] = SpriteArr[SpriteArr & 3 > 0] + 0x10#<<1#[0:spriteH,0:spriteW]
                 

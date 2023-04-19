@@ -130,9 +130,9 @@ class nesROM(NES):
         #Dim PrgMark As Long
         self.PrgMark = (self.PrgCount2 * 0x4000) - 1
         #self.PrgMark = (self.PrgCount2 * 0x4000) - 1
-        self.MirrorXor = 0x800 if self.Mirroring == 1 else 0x400
+        self.MirrorXor = ((NES.Mirroring + 1) % 3) * 0x400
 
-        NES.MirrorXor = 0x800 if NES.Mirroring == 1 else 0x400
+        NES.MirrorXor = ((NES.Mirroring + 1) % 3) * 0x400
         
         if NES.Trainer:
             print "Error: Trainer not yet supported." #, VERSION

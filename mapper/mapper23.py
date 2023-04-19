@@ -43,16 +43,16 @@ class MAPPER(MAPPER,NES):
                 self.SetPROM_8K_Bank( 4, data )
                 
         elif addr ==0x9000:
-            print "data",data
+            #print "data",data
             if data != 0xFF:
                 
                 data &= 0x03
-                if data == 0:NES.Mirroring = 0
-                elif data == 1:NES.Mirroring = 1
-                elif data == 2:NES.Mirroring = 2 #VRAM_MIRROR4L
-                else:NES.Mirroring = 3 #VRAM_MIRROR4H
-                print "Mirroring",NES.Mirroring
-                NES.MirrorXor = 0x400 if data else 0x800
+                if data == 0:NES.Mirroring = 1
+                elif data == 1:NES.Mirroring = 2
+                elif data == 2:NES.Mirroring = 3 #VRAM_MIRROR4L
+                else:NES.Mirroring = 4 #VRAM_MIRROR4H
+                #print "Mirroring",NES.Mirroring
+                NES.MirrorXor = ((NES.Mirroring + 1) % 3) * 0x400
                 
         elif addr == 0x9008:
             self.reg[8] = data & 0x02

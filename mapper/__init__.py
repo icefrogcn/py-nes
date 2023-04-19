@@ -9,14 +9,15 @@ from nes import NES
 
 class MAPPER(NES):
     
-    def __init__(self,PRGRAM):
+    def __init__(self,PRGRAM,VRAM):
         print 'init MAPPER',PRGRAM.shape
         self.PRGRAM = PRGRAM
+        self.VRAM = VRAM
 
     def reset(self):
         return self.PRGRAM
 
-    def Write(self):#$8000-$FFFF Memory write
+    def Write(self,address,data):#$8000-$FFFF Memory write
         print 'init Write'
 
     def Read(self,address):#$8000-$FFFF Memory read(Dummy)
@@ -91,20 +92,20 @@ class MAPPER(NES):
     def SetVROM_1K_Bank(self, page, bank):
         #print 'DEBUG: NES.VROM_1K_SIZE',NES.VROM_1K_SIZE,hex(len(self.VROM)),hex(len(self.VRAM))
         bank %= NES.VROM_1K_SIZE
-        NES.VRAM[page*0x400:page*0x400 + 0x400] = NES.VROM[0x0400*bank:0x0400*bank + 0x400]
+        self.VRAM[page*0x400:page*0x400 + 0x400] = NES.VROM[0x0400*bank:0x0400*bank + 0x400]
         #print NES.VRAM[0:100]
 
     def SetCRAM_1K_Bank(self, page, bank):
         print "Set CRAM"
         bank &= 0x1F
         CRAM = 32768 + 0x0400 * bank
-        NES.VRAM[page*0x400:page*0x400 + 0x400] = NES.VROM[CRAM:CRAM + 0x400]
+        self.VRAM[page*0x400:page*0x400 + 0x400] = self.VRAM[CRAM:CRAM + 0x400]
 
     def SetVRAM_1K_Bank(self, page, bank):
-        print "Set VRAM"
+        #print "Set VRAM"
         bank &= 0x3
-        VRAM = 4096 + 0x0400 * bank
-        NES.VRAM[page*0x400:page*0x400 + 0x400] = NES.VROM[VRAM:VRAM + 0x400]
+        VRAM = 0x0400 * bank + 4096
+        self.VRAM[page*0x400:page*0x400 + 0x400] = self.VRAM[VRAM:VRAM + 0x400]
 
 
 if __name__ == '__main__':
