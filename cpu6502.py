@@ -120,7 +120,7 @@ class cpu6502(MMC,NES):
             pass
 
 
-    def __init__(self, PRGRAM, PPU, APU, JOYPAD1, JOYPAD2):
+    def __init__(self, PRGRAM, PPU, APU, JOYPAD1, JOYPAD2, MAPPER):
         self.PC = np.uint16(0) #             16 bit 寄存器 其值为指令地址
         self.a = np.uint8(0) #                '累加器
         self.X = np.uint8(0) #                '寄存器索引
@@ -146,9 +146,13 @@ class cpu6502(MMC,NES):
         self.APU = APU
         self.JOYPAD1 = JOYPAD1
         self.JOYPAD2 = JOYPAD2
+        self.MAPPER = MAPPER
+
+        self.CPURunning = True
         
         self.addrmode = addrmode
-        self.instruction = instruction
+        self.instructions = instruction
+        self.Ticks = Ticks
 
         self.instruction_dic ={
              INS_BNE: self.bne6502,
@@ -254,59 +258,66 @@ class cpu6502(MMC,NES):
         if self.debug:
             print args
     
-    def exec6502(self):
+    def exec6502(self,fun_type = 'normal'):
 
-        while NES.CPURunning:
-            #self.debug()
+        PC = np.uint16(0) #             16 bit 寄存器 其值为指令地址
+        a = np.uint8(0) #                '累加器
+        X = np.uint8(0) #                '寄存器索引
+        Y = np.uint8(0) #                '寄存器2
+        S = np.uint8(0) #                '堆栈寄存器
+        p = np.uint8(0) #                '标志寄存器
+        savepc = np.uint16(0) # As Long
+        saveflags = np.uint16(0) # As Long 'Integer
+        clockticks6502 = np.uint16(0) # As Long
+
+        exec6502new(self)
+        
+        while self.CPURunning:
+
             if self.FrameFlag or self.MapperWriteFlag:
-                return
-            
+                    
+                    return
+                
             self.opcode = self.Read6502(self.PC)  #Fetch Next Operation
             self.PC += 1
-            self.clockticks6502 += Ticks[self.opcode]
+            self.clockticks6502 += self.Ticks[self.opcode]
 
-            #self.exec_opcode(instruction[self.opcode])
-            if self.instruction[self.opcode] == INS_ADC:
-                #print self.opcode
-                self.adrmode(self.opcode)
-                cpu6502instructions.ADC(self, self.Read6502(self.savepc))
-            else:
-                try:
-                    self.instruction_dic.get(self.instruction[self.opcode])()
-                except:
-                    print "Invalid opcode - %s" %hex(instruction[self.opcode])
-                    print (traceback.print_exc())
-                
-            if self.MAPPER.Clock(self.clockticks6502):self.irq6502()
-            
+            instruction = self.instructions[self.opcode]
+            #if instruction == INS_ADC:
+            #    #print self.opcode
+            #    self.adrmode(self.opcode)
+            #    cpu6502instructions.ADC(self, None)
+            #else:
+            self.instruction_dic.get(instruction)()
+
             if self.clockticks6502 > self.maxCycles1:
-                #self.log("Normal:",self.status()) ############################
-                
-                if self.PPU.CurrentLine <= 239:
-                    self.PPU.RenderScanline()
+                self.Scanline()
+
+
+
+    def Scanline(self):
+
+                if self.MAPPER.Clock(self.clockticks6502):self.irq6502()
+                #self.log("Scanline:",self.status()) ############################
 
                 self.PPU.CurrentLine +=  1
-
-                #if self.debug == False:
-                    
-                    
-                if NES.Mapper == 4:
-                    if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.Control1):
-                        self.irq6502()
-
                 
+                if self.PPU.CurrentLine < 240:
+                    self.PPU.RenderScanline()
+
+                    
+                if self.MAPPER.Mapper == 4:
+                    if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.Control1):
+                        print 'MMC3_HBlank'
+                        #self.irq6502()
                         
                 if self.PPU.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
                     if self.PPU.CurrentLine == 240 :
                         if self.PPU.Control1 & 0x80:
                             self.nmi6502()
-
                            #realframes = realframes + 1
-                        'ensure most recent keyboard input'
-
-            
-                    self.PPU.Status = 0x80
+                    if self.PPU.CurrentLine == 241 :self.PPU.Status = 0x80
 
                         
                 if self.PPU.CurrentLine == 262:
@@ -319,7 +330,7 @@ class cpu6502(MMC,NES):
                     if self.PPU.Running and self.PPU.render:self.PPU.blitFrame()
         
                     
-                    NES.Frames += 1
+                    #self.PPU.Frames += 1
                     #print NES.Frames
                     self.PPU.Status = 0x0
                     self.FrameFlag = True
@@ -327,8 +338,7 @@ class cpu6502(MMC,NES):
 
                 self.clockticks6502 -= self.maxCycles1
 
-
-
+                
 
         #"DF: reordered the the case's. Made address long (was variant)."
     
@@ -377,11 +387,9 @@ class cpu6502(MMC,NES):
 
     def adrmode(self, opcode):    #--------------------------   adrmode   -------------------
         #self.adrmode_opcode()
-        try:
-            self.adrmode_dic[self.addrmode[opcode]]()
-        except:
-            print "Invalid addrmode - %d" %addrmode[opcode]
-            print (traceback.print_exc())
+        #if self.addrmode[opcode] = ADR_REL
+        self.adrmode_dic[self.addrmode[opcode]]()
+
 
     
     def indabsx6502(self):
@@ -485,7 +493,7 @@ class cpu6502(MMC,NES):
         self.savepc = self.Read6502(self.PC)
         self.PC += 1
         if (self.savepc & 0x80):
-            self.savepc = self.savepc - 0x100
+            self.savepc -=  0x100
 
     
     def and6502(self):
@@ -958,10 +966,10 @@ class cpu6502(MMC,NES):
         addr = Address >> 13
         value = 0
         if addr == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
-            value = RamRead(Address,self.bank0)
+            return RamRead(Address,self.bank0)
         
         elif addr >0x03:
-            value = MapperRead(Address,self.PRGRAM)
+            return MapperRead(Address,self.PRGRAM)
        
         elif addr == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
             if self.PPU.Running:
@@ -1015,7 +1023,7 @@ class cpu6502(MMC,NES):
             if Address < 0x4100:self.WriteReg(Address,value)
         
         elif addr == 0x03:#Address >= 0x6000 and Address <= 0x7FFF:
-            print 'WriteLow'
+            #print 'WriteLow'
             return self.MAPPER.WriteLow(Address, value)
             if NES.SpecialWrite6000 == True :
                 #print 'SpecialWrite6000'
@@ -1077,24 +1085,81 @@ class cpu6502(MMC,NES):
             return self.bankC[address & 0x1FFF]
         elif addr == 0x07:                      #Address >=0xE000 and Address <=0xFFFF:
             return self.bankE[address & 0x1FFF]'''
+
+#@jit(forceobj=True)
+def exec6502new(cpu):
+        while cpu.CPURunning:
+
+            if cpu.FrameFlag or cpu.MapperWriteFlag:
+                    
+                    return
+                
+            cpu.opcode = cpu.Read6502(cpu.PC)  #Fetch Next Operation
+            cpu.PC += 1
+            cpu.clockticks6502 += cpu.Ticks[cpu.opcode]
+
+            instruction = cpu.instructions[cpu.opcode]
+            #if instruction == INS_ADC:
+            #    #print self.opcode
+            #    self.adrmode(self.opcode)
+            #    cpu6502instructions.ADC(self, None)
+            #else:
+            cpu.instruction_dic.get(instruction)()
+
+            if cpu.clockticks6502 > cpu.maxCycles1:
+                cpu.Scanline()
+
+
+#@jit(forceobj=True)
+def Read6502(cpu, address):
+        bank = address >> 13
+        value = 0
+        if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
+
+            return cpu.bank0[address & 0x7FF]
         
+        elif bank > 0x03:
+            return cpu.PRGRAM[bank, address & 0x1FFF]
+       
+        elif bank == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
+            if cpu.PPU.Running:
+                value = cpu.PPU.Read(address)
+            else:
+                return cpu.PRGRAM[1, address & 0x0007]
+
+        elif (address >=0x4000 and address <=0x4013) or address == 0x4015:
+            return cpu.APU.Sound[address - 0x4000]
+        
+        elif address == 0x4016:
+            #print "Read JOY1"
+            #return 0x40
+            value = cpu.JOYPAD1.Read()
+
+        elif address == 0x4017:
+            #print "Read JOY2 "
+            #pass
+            value = cpu.JOYPAD2.Read()
+        elif bank == 0x03: #Address == 0x6000 -0x7FFF:
+            return cpu.MAPPER.ReadLow(address)
+            
+        return value  
 
 @jit
 def MapperRead(address,PRGRAM):
         bank = address >> 13
         addr = address & 0x1FFF
-        return PRGRAM[bank][addr]
+        return PRGRAM[bank,addr]
 
 @jit
 def PPUWrite(address,value,PRGRAM):
     addr = address & 0x0007
-    PRGRAM[1][addr] = value
+    PRGRAM[1,addr] = value
 
 @jit
 def PPURead(address,PRGRAM):
     #improve speed
     addr = address & 0x0007
-    return PRGRAM[1][addr]
+    return PRGRAM[1,addr]
 
 @jit(nopython=True)
 def RamRead(address,bank0):

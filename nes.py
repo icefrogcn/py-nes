@@ -136,7 +136,8 @@ class NES(object):
     Frames = 0
 
     newmapper_debug = 0
-    
+
+    Running = 1
     
     def __init__(self,debug = False):
         NESLoop = 0

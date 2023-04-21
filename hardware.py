@@ -92,8 +92,6 @@ class neshardware(MMC, NES):
 
         self.PRGRAM = np.zeros((8,0x2000), dtype=np.uint8)
 
-        self.cpu6502 = cpu6502(self.PRGRAM,self.PPU, self.APU, self.JOYPAD1, self.JOYPAD2)
-        self.cpu6502.debug = debug
         
         #self.CPURunning = cpu6502.CPURunning
 
@@ -119,8 +117,12 @@ class neshardware(MMC, NES):
             PRGRAM = 'self.PRGRAM'
             VRAM = 'self.PPU.VRAM'
             mapper = __import__('mapper',fromlist = ['mapper%d' %self.Mapper])
-            self.cpu6502.MAPPER = eval('mapper.mapper%d.MAPPER(%s,%s)' %(self.Mapper,PRGRAM,VRAM))
+
             self.MAPPER = eval('mapper.mapper%d.MAPPER(%s,%s)' %(self.Mapper,PRGRAM,VRAM))
+
+            self.cpu6502 = cpu6502(self.PRGRAM,self.PPU, self.APU, self.JOYPAD1, self.JOYPAD2, self.MAPPER)
+            self.cpu6502.debug = debug
+
             self.MAPPER.reset()
             print self.cpu6502.PRGRAM
             #self.cpu6502.PRGRAM = self.MAPPER.reset()
@@ -132,8 +134,11 @@ class neshardware(MMC, NES):
             print (traceback.print_exc())
             NES.newmapper_debug = 0
             mapper = __import__('mapper')
-            self.cpu6502.MAPPER = mapper.MAPPER(self.cpu6502.PRGRAM,self.cpu6502.PPU.VRAM)
+            self.MAPPER = mapper.MAPPER(self.PRGRAM,self.PPU.VRAM)
+            self.cpu6502 = cpu6502(self.PRGRAM,self.PPU, self.APU, self.JOYPAD1, self.JOYPAD2, self.MAPPER)
             LoadNES = self.MapperChoose(NES.Mapper)
+            print 'OLD MapperWrite'
+                
             if( NES.VROM_8K_SIZE ):
                 self.Select8KVROM(0)
             else:
@@ -157,7 +162,8 @@ class neshardware(MMC, NES):
         self.PowerON()
         self.PPU.ScreenShow()
         
-        while NES.CPURunning:
+        NES.Running = 1
+        while NES.Running:
 
             self.cpu6502.exec6502()
             if self.cpu6502.MapperWriteFlag:
@@ -442,7 +448,7 @@ def show_choose(ROMS_INFO):
     print "---------------"
     print 'choose a number as a selection.'
 
-def run(debug = True):
+def run(debug = False):
     ROMS = roms_list()
     ROMS_INFO = get_roms_mapper(ROMS)
     while True:

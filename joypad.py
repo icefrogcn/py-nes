@@ -62,7 +62,7 @@ class JOYPAD(NES):
         return joypad_info
 
     def turnoff(self):
-        NES.CPURunning = False
+        NES.Running = 0
 if __name__ == '__main__':
     JOYPAD = JOYPAD()
 

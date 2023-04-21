@@ -12,16 +12,16 @@ from deco import *
 def ADC(cpu, source):
         
         #cpu.adrmode(cpu.opcode)
-        #temp_value = source#cpu.Read6502(cpu.savepc)
+        temp_value = Read6502(cpu,cpu.savepc)
      
         cpu.saveflags = cpu.p & 0x1
         #print "adc6502"
         
-        _sum = (cpu.a + source) & 0xFF
+        _sum = (cpu.a + temp_value) & 0xFF
         _sum = (_sum + cpu.saveflags) & 0xFF
         cpu.p = (cpu.p | 0x40) if (_sum > 0x7F) or (_sum < -0x80) else (cpu.p & 0xBF)
       
-        _sum = cpu.a + (source + cpu.saveflags)
+        _sum = cpu.a + (temp_value + cpu.saveflags)
         cpu.p = (cpu.p | 0x1) if (_sum > 0xFF)  else (cpu.p & 0xFE)
 
       
@@ -42,6 +42,96 @@ def ADC(cpu, source):
         cpu.p = (cpu.p & 0xFD) if (cpu.a) else (cpu.p | 0x2)
         cpu.p = (cpu.p | 0x80) if (cpu.a & 0x80) else (cpu.p & 0x7F)
 
+
+def REL(cpu, source):
+        cpu.savepc = self.Read6502(self.PC)
+        cpu.PC += 1
+        if (cpu.savepc & 0x80):
+            cpu.savepc = cpu.savepc - 0x100
+
+@jit(forceobj=True)
+def Read6502(cpu, address):
+        bank = address >> 13
+        value = 0
+        if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
+
+            return cpu.bank0[address & 0x7FF]
+        
+        elif bank > 0x03:
+            return cpu.PRGRAM[bank, address & 0x1FFF]
+       
+        elif bank == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
+            if cpu.PPU.Running:
+                value = cpu.PPU.Read(address)
+            else:
+                return cpu.PRGRAM[1, address & 0x0007]
+
+        elif (address >=0x4000 and address <=0x4013) or address == 0x4015:
+            return cpu.APU.Sound[address - 0x4000]
+        
+        elif address == 0x4016:
+            #print "Read JOY1"
+            #return 0x40
+            value = cpu.JOYPAD1.Read()
+
+        elif address == 0x4017:
+            #print "Read JOY2 "
+            #pass
+            value = cpu.JOYPAD2.Read()
+        elif bank == 0x03: #Address == 0x6000 -0x7FFF:
+            return cpu.MAPPER.ReadLow(address)
+            
+        return value
+
+    
+def exec6502(self,fun_type = 'normal'):
+
+        PC = np.uint16(0) #             16 bit 寄存器 其值为指令地址
+        a = np.uint8(0) #                '累加器
+        X = np.uint8(0) #                '寄存器索引
+        Y = np.uint8(0) #                '寄存器2
+        S = np.uint8(0) #                '堆栈寄存器
+        p = np.uint8(0) #                '标志寄存器
+        savepc = np.uint16(0) # As Long
+        saveflags = np.uint16(0) # As Long 'Integer
+        clockticks6502 = np.uint16(0) # As Long
+
+        
+        def ADC(cpu, source):
+            #cpu.adrmode(cpu.opcode)
+            #temp_value = source#cpu.Read6502(cpu.savepc)
+         
+            saveflags = p & 0x1
+            
+            _sum = (a + source) & 0xFF
+            _sum = (_sum + saveflags) & 0xFF
+            p = (p | 0x40) if (_sum > 0x7F) or (_sum < -0x80) else (p & 0xBF)
+          
+            _sum = a + (source + saveflags)
+            p = (p | 0x1) if (_sum > 0xFF)  else (p & 0xFE)
+
+          
+            a = _sum & 0xFF
+            if (p & 0x8) :
+                p = (p & 0xFE)
+                if ((a & 0xF) > 0x9) :
+                    a = (a + 0x6) & 0xFF
+
+                if ((a & 0xF0) > 0x90) :
+                    a = (a + 0x60) & 0xFF
+                    p = p | 0x1
+
+            else:
+                clockticks6502 += 1
+
+        
+            p = (p & 0xFD) if (a) else (p | 0x2)
+            p = (p | 0x80) if (a & 0x80) else (p & 0x7F)
+
+
+
+
+            
 if __name__ == '__main__':
     cpu = cpu6502()
     zpx6502(cpu)

@@ -8,7 +8,7 @@ from hardware import run
 
     
 if __name__ == '__main__':
-    run(debug = False)
+    cProfile.run('run()')
     
 
 
