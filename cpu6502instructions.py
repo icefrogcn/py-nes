@@ -8,11 +8,10 @@ from numba import jit
 from deco import *
 
 
-@jit(forceobj=True)
+@jit
 def ADC(cpu, source):
-        
         #cpu.adrmode(cpu.opcode)
-        temp_value = Read6502(cpu,cpu.savepc)
+        temp_value = source
      
         cpu.saveflags = cpu.p & 0x1
         #print "adc6502"
@@ -49,41 +48,7 @@ def REL(cpu, source):
         if (cpu.savepc & 0x80):
             cpu.savepc = cpu.savepc - 0x100
 
-@jit(forceobj=True)
-def Read6502(cpu, address):
-        bank = address >> 13
-        value = 0
-        if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
-
-            return cpu.bank0[address & 0x7FF]
-        
-        elif bank > 0x03:
-            return cpu.PRGRAM[bank, address & 0x1FFF]
-       
-        elif bank == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
-            if cpu.PPU.Running:
-                value = cpu.PPU.Read(address)
-            else:
-                return cpu.PRGRAM[1, address & 0x0007]
-
-        elif (address >=0x4000 and address <=0x4013) or address == 0x4015:
-            return cpu.APU.Sound[address - 0x4000]
-        
-        elif address == 0x4016:
-            #print "Read JOY1"
-            #return 0x40
-            value = cpu.JOYPAD1.Read()
-
-        elif address == 0x4017:
-            #print "Read JOY2 "
-            #pass
-            value = cpu.JOYPAD2.Read()
-        elif bank == 0x03: #Address == 0x6000 -0x7FFF:
-            return cpu.MAPPER.ReadLow(address)
-            
-        return value
-
-    
+'''    
 def exec6502(self,fun_type = 'normal'):
 
         PC = np.uint16(0) #             16 bit 寄存器 其值为指令地址
@@ -129,7 +94,7 @@ def exec6502(self,fun_type = 'normal'):
             p = (p | 0x80) if (a & 0x80) else (p & 0x7F)
 
 
-
+'''
 
             
 if __name__ == '__main__':

@@ -1,8 +1,10 @@
 # -*- coding: UTF-8 -*-
 
 import time
-from numba import jit
+from numba import jit,jitclass
+from numba import int8,uint8,int16,uint16
 import numpy as np
+import numba as nb
 
 import traceback
 
@@ -19,7 +21,7 @@ import keyboard
 #自定义类
 from cpu6502commands import *
 
-import cpu6502instructions
+from cpu6502instructions import *
 
 from deco import *
 from vbfun import MemCopy
@@ -45,26 +47,51 @@ V_FLAG = 0x40	#	// 1: Overflow
 N_FLAG = 0x80	#	// 1: Negative
 
 
+@jitclass([('PC',uint16),('a',uint8),('X',uint8),('Y',uint8),('S',uint8),('p',uint16),('savepc',uint16),('saveflags',uint16),('clockticks6502',uint16)])
+class reg(object):
+    def __init__(self):
+        self.PC = 0
+        self.a = 0
+        self.X = 0
+        self.Y = 0
+        self.S = 0
+        self.p = 0
+        self.savepc = 0
+        self.saveflags = 0
+        self.clockticks6502  = 0
+
+#uint8_vector = nb.types.Array(dtype=uint8[:], ndim=1, layout="A")
+#uint16_vector = nb.types.Array(dtype=uint16[:], ndim=1, layout="C")
+
+@jitclass([('RAM',uint8[:]), \
+           ('bank0',uint8[:]), \
+           ('bank6',uint8[:]), \
+           ('bank8',uint8[:]), \
+           ('bankA',uint8[:]), \
+           ('bankC',uint8[:]), \
+           ('bankE',uint8[:])])
+class Memory(object):
+    def __init__(self):
+        self.RAM = np.zeros(0x2000,np.uint8)
+        self.bank0 = np.zeros(2048,np.uint8)#[0]*2048 #As Byte ' RAM 
+        self.bank6 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte ' SaveRAM 
+        self.bank8 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte '8-E are PRG-ROM
+        self.bankA = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
+        self.bankC = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
+        self.bankE = np.zeros(0x2000,np.uint8)#[0] * 8192 #As Byte
+
 class cpu6502(MMC,NES):
     
     AddressMask =0 #Long 'Integer
 
     'Registers & tempregisters'
     'DF: Be careful. Anything, anywhere that uses a variable of the same name without declaring it will be using these:'
-
-
-
-
     
     '32bit instructions are faster in protected mode than 16bit'
 
     #value = 0 # As Long 'Integer
-    value2 = np.uint16(0) # As Long 'Integer
     #_sum = 0 # As Long 'Integer
     #_help = 0 # As Long
-
-    opcode = np.uint8(0) # As Byte
-    
 
     ' arrays'
     #gameImage = [] #As Byte
@@ -81,12 +108,12 @@ class cpu6502(MMC,NES):
 
     CPU_MEM_BANK = 8
     RAM = np.zeros(0x2000,np.uint8)
-    bank0 = np.zeros(2048,np.uint8)#[0]*2048 #As Byte ' RAM            主工作内存
+    #bank0 = np.zeros(2048,np.uint8)#[0]*2048 #As Byte ' RAM            主工作内存
     #bank6 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte ' SaveRAM        记忆内存
-    bank8 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte '8-E are PRG-ROM.主程序
-    bankA = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
-    bankC = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
-    bankE = np.zeros(0x2000,np.uint8)#[0] * 8192 #As Byte
+    #bank8 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte '8-E are PRG-ROM.主程序
+    #bankA = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
+    #bankC = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
+    #bankE = np.zeros(0x2000,np.uint8)#[0] * 8192 #As Byte
 
 
     '''
@@ -109,16 +136,6 @@ class cpu6502(MMC,NES):
 
     tilebased = True
     
-    class Instruction:
-        def __init__(self, cpu, fn, addressing, base_cycles):
-            self._cpu = cpu
-            self._fn = fn
-            self._admode = addressing
-            self._cycles = base_cycles
-            
-        def __call__(self):
-            pass
-
 
     def __init__(self, PRGRAM, PPU, APU, JOYPAD1, JOYPAD2, MAPPER):
         self.PC = np.uint16(0) #             16 bit 寄存器 其值为指令地址
@@ -130,11 +147,18 @@ class cpu6502(MMC,NES):
         self.savepc = np.uint16(0) # As Long
         self.saveflags = np.uint16(0) # As Long 'Integer
         self.clockticks6502 = np.uint16(0) # As Long
+        self.opcode = np.uint8(0) # As Byte
 
-
-        self.Register = [self.PC, self.a, self.X, self.Y, self.S, self.p, self.savepc, self.saveflags, self.clockticks6502]
-        #self.Register = [self.PC, self.a, self.X, self.Y, self.S, self.p, self.savepc,self.saveflags]
-
+        self.reg = reg()
+        self.RAM = Memory()
+        self.bank0 = self.RAM.bank0
+        self.bank6 = self.RAM.bank8
+        self.bank8 = self.RAM.bank8
+        self.bankA = self.RAM.bankA
+        self.bankC = self.RAM.bankC
+        self.bankE = self.RAM.bankE
+        
+        
         self.debug = False
         self.MapperWriteFlag = False
         self.MapperWriteData = {'Address':0,'value':0}
@@ -241,6 +265,119 @@ class cpu6502(MMC,NES):
             ADR_ZPX: self.zpx6502,
             ADR_ZPY: self.zpy6502
             }
+
+        self.new_instruction ={
+             #INS_BNE: self.bne6502,
+             #INS_CMP: self.cmp6502,
+             #INS_LDA: self.lda6502,
+             #INS_STA: self.sta6502,
+             #INS_BIT: self.bit6502,
+             #INS_BVC: self.bvc6502,
+             #INS_BEQ: self.beq6502,
+             #INS_INY: self.iny6502,
+             #INS_BPL: self.bpl6502,
+             #INS_DEX: self.dex6502,
+             #INS_INC: self.inc6502,
+             #INS_JMP: self.jmp6502,
+             #INS_DEC: self.dec6502,
+             #INS_JSR: self.jsr6502,
+             #INS_AND: self.and6502,
+             #INS_NOP: self.nop6502,
+             #INS_BRK: self.brk6502,
+             INS_ADC: ADC(self.reg, self.Read6502(self.savepc)),
+             #INS_EOR: self.eor6502,
+             #INS_ASL: self.asl6502,
+             #INS_ASLA: self.asla6502,
+             #INS_BCC: self.bcc6502,
+             #INS_BCS: self.bcs6502,
+             #INS_BMI: self.bmi6502,
+             #INS_BVS: self.bvs6502,
+             #INS_CLC: self.clc6502,
+             #INS_CLD: self.cld6502,
+             #INS_CLI: self.cli6502,
+             #INS_CLV: self.clv6502,
+             #INS_CPY: self.cpy6502,
+             #INS_DEA: self.dea6502,
+             #INS_DEY: self.dey6502,
+             #INS_INA: self.ina6502,
+             #INS_INX: self.inx6502,
+             #INS_LDX: self.ldx6502,
+             #INS_LDY: self.ldy6502,
+             #INS_LSR: self.lsr6502,
+             #INS_LSRA: self.lsra6502,
+             #INS_ORA: self.ora6502,
+             #INS_PHA: self.pha6502,
+             #INS_PHX: self.phx6502,
+             #INS_PHP: self.php6502,
+             #INS_PHY: self.phy6502,
+             #INS_PLA: self.pla6502,
+             #INS_PLP: self.plp6502,
+             #INS_PLX: self.plx6502,
+             #INS_PLY: self.ply6502,
+             #INS_ROL: self.rol6502,
+             #INS_ROLA: self.rola6502,
+             #INS_ROR: self.ror6502,
+             #INS_RORA: self.rora6502,
+             #INS_RTI: self.rti6502,
+             #INS_RTS: self.rts6502,
+             #INS_SBC: self.sbc6502,
+             #INS_SEC: self.sec6502,
+             #INS_SED: self.sed6502,
+             #INS_SEI: self.sei6502,
+             #INS_STX: self.stx6502,
+             #INS_STY: self.sty6502,
+             #INS_TAX: self.tax6502,
+             #INS_TAY: self.tay6502,
+             #INS_TXA: self.txa6502,
+             #INS_TYA: self.tya6502,
+             #INS_TXS: self.txs6502,
+             #INS_TSX: self.tsx6502,
+             #INS_BRA: self.bra6502
+        }
+
+        self.new_adrmode ={
+            ADR_ABS: self.abs6502,
+            ADR_ABSX: self.absx6502,
+            ADR_ABSY: self.absy6502,
+            ADR_IMP: ' nothing really necessary cause implied6502 = ""',
+            ADR_IMM: self.imm6502,
+            ADR_INDABSX: self.indabsx6502,
+            ADR_IND: self.indirect6502,
+            ADR_INDX: self.indx6502,
+            ADR_INDY: self.indy6502,
+            ADR_INDZP: self.indzp6502,
+            ADR_REL: self.rel6502,
+            ADR_ZP: self.zp6502,
+            ADR_ZPX: self.zpx6502,
+            ADR_ZPY: self.zpy6502
+            }
+
+
+
+    def sync_cpu2reg(self,reg):
+        reg.PC = self.PC
+        reg.a = self.a
+        reg.X = self.X
+        reg.Y = self.Y
+        reg.S = self.S
+        reg.p = self.p
+        reg.savepc = self.savepc
+        reg.saveflags = self.saveflags
+        reg.clockticks6502 = self.clockticks6502
+        
+
+    def sync_reg2cpu(self,reg):
+        self.PC = reg.PC
+        self.a = reg.a
+        self.X = reg.X
+        self.Y = reg.Y
+        self.S = reg.S
+        self.p = reg.p
+        self.savepc = reg.savepc
+        self.saveflags = reg.saveflags
+        self.clockticks6502 = reg.clockticks6502
+
+        
     def implied6502(self):
         return
 
@@ -283,12 +420,15 @@ class cpu6502(MMC,NES):
             self.clockticks6502 += self.Ticks[self.opcode]
 
             instruction = self.instructions[self.opcode]
-            #if instruction == INS_ADC:
-            #    #print self.opcode
-            #    self.adrmode(self.opcode)
-            #    cpu6502instructions.ADC(self, None)
-            #else:
-            self.instruction_dic.get(instruction)()
+
+            sync_cpu2reg(reg)
+            if instruction == INS_ADC:
+                self.adrmode(self.opcode)
+                #cpu6502instructions.ADC(self, None)
+                ADC(self.reg, self.Read6502(self.savepc))
+                sync_reg2cpu(reg)
+            else:
+                self.instruction_dic.get(instruction)()
 
             if self.clockticks6502 > self.maxCycles1:
                 self.Scanline()
@@ -297,10 +437,9 @@ class cpu6502(MMC,NES):
 
     def Scanline(self):
 
-                if self.MAPPER.Clock(self.clockticks6502):self.irq6502()
+                #if self.MAPPER.Clock(self.clockticks6502):self.irq6502()
                 #self.log("Scanline:",self.status()) ############################
 
-                self.PPU.CurrentLine +=  1
                 
                 if self.PPU.CurrentLine < 240:
                     self.PPU.RenderScanline()
@@ -334,7 +473,9 @@ class cpu6502(MMC,NES):
                     #print NES.Frames
                     self.PPU.Status = 0x0
                     self.FrameFlag = True
-                    
+                else:
+                    self.PPU.CurrentLine +=  1
+                
 
                 self.clockticks6502 -= self.maxCycles1
 
@@ -1144,6 +1285,9 @@ def Read6502(cpu, address):
             
         return value  
 
+
+
+        
 @jit
 def MapperRead(address,PRGRAM):
         bank = address >> 13

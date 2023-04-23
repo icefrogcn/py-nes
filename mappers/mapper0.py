@@ -5,17 +5,17 @@ sys.path.append("..")
 
 
 #MAPPER
-from mapper import MAPPER
+from mappers import MAPPER
 from nes import NES
 
 
-class MAPPER(MAPPER,NES):
+class MAPPER(MAPPER):
 
     #def __init__(self,debug = False):
     #     print 'init MAPPER 0',PRGRAM.shape
 
     def reset(self):
-        print "RESET MAPPER ", NES.Mapper
+        print "RESET MAPPER ", self.Mapper
         self.SetVROM_8K_Bank(0)
         if self.PROM_16K_SIZE == 1: # 16K only
             self.SetPROM_16K_Bank( 4, 0 )

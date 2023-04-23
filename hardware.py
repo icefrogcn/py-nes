@@ -116,7 +116,7 @@ class neshardware(MMC, NES):
         try:
             PRGRAM = 'self.PRGRAM'
             VRAM = 'self.PPU.VRAM'
-            mapper = __import__('mapper',fromlist = ['mapper%d' %self.Mapper])
+            mapper = __import__('mappers',fromlist = ['mapper%d' %self.Mapper])
 
             self.MAPPER = eval('mapper.mapper%d.MAPPER(%s,%s)' %(self.Mapper,PRGRAM,VRAM))
 
@@ -133,7 +133,7 @@ class neshardware(MMC, NES):
         except:
             print (traceback.print_exc())
             NES.newmapper_debug = 0
-            mapper = __import__('mapper')
+            mapper = __import__('mappers')
             self.MAPPER = mapper.MAPPER(self.PRGRAM,self.PPU.VRAM)
             self.cpu6502 = cpu6502(self.PRGRAM,self.PPU, self.APU, self.JOYPAD1, self.JOYPAD2, self.MAPPER)
             LoadNES = self.MapperChoose(NES.Mapper)

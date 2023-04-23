@@ -7,7 +7,7 @@ import traceback
 import cv2
 import numpy as np
 import numba as nb
-from numba import jit
+from numba import jit,njit
 from numba import jitclass
 from numba import int8,int16
 
@@ -144,7 +144,7 @@ class PPU(NES):
         
         self.vBuffer = np.array([self.blankLine] * self.height ,dtype=np.uint8)
         
-
+        self.FrameArray = np.zeros((720, 768),np.uint8)
 
         
         self.PatternTable = np.uint8(0)
@@ -359,20 +359,21 @@ class PPU(NES):
 '''
         if self.CurrentLine > 239:return
 
-        if self.CurrentLine < 8 :
-            self.Status = self.Status & 0x3F
+        #if self.CurrentLine < 8 :
+            #self.Status = self.Status & 0x3F
 
         if self.CurrentLine == 239 :
-            self.Status = self.Status | PPU_VBLANK_FLAG
+            self.Status = self.Status | 0x80#PPU_VBLANK_FLAG
         
-        self.ScanlineSPHit[self.CurrentLine] =  1 if self.Status & PPU_SPHIT_FLAG else 0
 	    
         if self.Running == 0:
             if self.Control2 & PPU_SPDISP_BIT == 0 :return
-            if self.Status & PPU_SPHIT_FLAG == 0 :return
+            if self.Status & 0x40 :return #PPU_SPHIT_FLAG
             if self.CurrentLine > self.SpriteRAM[0] + 8:
-                self.Status = self.Status | PPU_SPHIT_FLAG
+                self.Status = self.Status | 0x40#PPU_SPHIT_FLAG
             return
+
+        self.ScanlineSPHit[self.CurrentLine] =  1 if self.Status & PPU_SPHIT_FLAG else 0
 
         '''self.sp_h = 16 if self.Control1 & PPU_SP16_BIT else 8
 
@@ -407,80 +408,6 @@ class PPU(NES):
             self.loopy_v = self.loopy_t
             self.loopy_shift = self.loopy_x
             self.loopy_y = (self.loopy_v & 0x7000)>>12
-
-    
-    def RenderScanlinePixel(self, NameTableAddress):
-        if self.Control2 & PPU_BGDISP_BIT == 0 :return
-            
-        sc = self.CurrentLine + self.vScroll
-        
-        TileRow = (sc // 8) % 30
-        TileYOffset = sc & 7
-
-        
-        NameTable = 0x2000 + (0x400 * (self.Control1 & PPU_NAMETBL_BIT)) ^ NameTableAddress
-        
-        self.PatternTable = (self.Control1 & PPU_BGTBL_BIT) << 8 #* 0x100
-        
-        AttributeTable = NameTable + 0x3C0
-
-
-        for TileCounter in range(self.HScroll / 8, 32):
-            TileIndex = self.VRAM[NameTable + TileCounter + TileRow * 32]
-            '''If Mapper = 9 Or Mapper = 10 Then
-                If PatternTable = &H0 Then
-                    MMC2_latch TileIndex, False
-                ElseIf PatternTable = &H1000& Then
-                    MMC2_latch TileIndex, True
-                End If
-            End If'''
-            Byte1 = self.VRAM[self.PatternTable + TileIndex * 16 + TileYOffset]  #-1
-            Byte2 = self.VRAM[self.PatternTable + TileIndex * 16 + 8 + TileYOffset] #-1
-            
-            c1 = ((Byte1>>1)&0x55)|(Byte2&0xAA)
-            c2 = (Byte1&0x55)|((Byte2<<1)&0xAA)
-            '''if True:#c1 or c2:
-                #print hex(c1),hex(c2)
-                self.vBuffer[self.CurrentLine][0 + TileCounter * 8] = self.Pal[self.BGPAL[(c1>>6)]]
-                self.vBuffer[self.CurrentLine][4 + TileCounter * 8] = self.Pal[self.BGPAL[(c1>>2)&3]]
-                self.vBuffer[self.CurrentLine][1 + TileCounter * 8] = self.Pal[self.BGPAL[(c2>>6)]]
-                self.vBuffer[self.CurrentLine][5 + TileCounter * 8] = self.Pal[self.BGPAL[(c2>>2)&3]]
-                self.vBuffer[self.CurrentLine][2 + TileCounter * 8] = self.Pal[self.BGPAL[(c1>>4)&3]]
-                self.vBuffer[self.CurrentLine][6 + TileCounter * 8] = self.Pal[self.BGPAL[c1&3]]
-                self.vBuffer[self.CurrentLine][3 + TileCounter * 8] = self.Pal[self.BGPAL[(c2>>4)&3]]
-                self.vBuffer[self.CurrentLine][7 + TileCounter * 8] = self.Pal[self.BGPAL[c2&3]]'''
-            
-            
-            X = TileCounter * 8 - self.HScroll + 7
-            m = X if X < 7 else 7
-            X = X + self.CurrentLine * 256
-            LookUp = self.VRAM[AttributeTable + TileCounter / 4 + (TileRow / 4) * 0x8]
-            
-            Tiletemp = (TileCounter & 2) | (TileRow & 2) * 2
-            if Tiletemp == 0:
-                    addToCol = LookUp * 4 & 12
-            elif Tiletemp == 2:
-                    addToCol = LookUp & 12
-            elif Tiletemp == 4:
-                    addToCol = LookUp / 4 & 12
-            elif Tiletemp == 6:
-                    addToCol = LookUp / 16 & 12
-            
-            a = (Byte1 * 2048) + (Byte2 * 8)
-                
-            #for pixel in range(m,0,-1): # = m To 0 Step -1
-            for pixel in range(m + 1): # = m To 0 Step -1
-                try:
-                    Color = NES.tLook[a + pixel]
-                except:
-                    print a,m,pixel,a + pixel
-                if Color:# addToCol :
-                    pass
-                    #self.vBuffer[Scanline][8 - pixel + TileCounter * 8] = self.Pal[Color | addToCol]
-                    self.vBuffer[self.CurrentLine][8 - pixel + TileCounter * 8] = Color | addToCol
-
-
-        
 
                     
     
@@ -557,11 +484,11 @@ class PPU(NES):
             self.scY = self.vScroll + ((NTnum>>1) * 240) 
             #if self.loopy_v&0x0FFF else self.scY
         
-        self.FrameBuffer = RenderBG(self.VRAM, self.Control1, self.Mirroring)
+        RenderBG(self.FrameArray, self.VRAM, self.Control1, self.Mirroring)
 
         self.RenderSprites()
         
-        self.FrameBuffer = paintBuffer(self.FrameBuffer,self.Pal,self.Palettes)
+        self.FrameBuffer = paintBuffer(self.FrameArray,self.Pal,self.Palettes)
 
         
         if self.debug == False and self.render:
@@ -581,7 +508,7 @@ class PPU(NES):
         PatternTable_Array = PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + PatternTablesSize])
 
         
-        RenderSpriteArray(self.FrameBuffer, self.SpriteRAM, PatternTable_Array, self.scY, self.scX, self.sp16, self.ScanlineSPHit)
+        RenderSpriteArray(self.FrameArray, self.SpriteRAM, PatternTable_Array, self.scY, self.scX, self.sp16, self.ScanlineSPHit)
          
     '''
     def RenderBG(self):
@@ -650,18 +577,18 @@ class PPU(NES):
         cv2.waitKey(1)
 
 #@jit
-def RenderBG(VRAM, PPU_Control1, Mirroring):
+def RenderBG(FrameArray, VRAM, PPU_Control1, Mirroring):
         
         PatternTablesAddress = (PPU_Control1 & 0x10 ) << 8 #PPU_BGTBL_BIT = 0x10
         
         PatternTable_Array = PatternTableArr(VRAM[PatternTablesAddress : PatternTablesAddress + 0x1000])
 
         if Mirroring == 1:
-            return RenderNameTableH(VRAM, PatternTable_Array, 0,1)
+            RenderNameTableH(FrameArray, VRAM, PatternTable_Array, 0,1)
 
         elif Mirroring == 0 :
             
-            return RenderNameTableV(VRAM,PatternTable_Array, 0,2)
+            RenderNameTableV(FrameArray,VRAM,PatternTable_Array, 0,2)
             
         elif Mirroring == 2:
             return  RenderNameTables(VRAM,PatternTable_Array, 0,1,2,3)
@@ -670,23 +597,23 @@ def RenderBG(VRAM, PPU_Control1, Mirroring):
 
             
 #@jit
-def RenderNameTableH(VRAM, PatternTables,nt0,nt1):
+def RenderNameTableH(FrameArray, VRAM, PatternTables,nt0,nt1):
     tempBuffer0 = NameTableArr(NameTables_data(VRAM, nt0),PatternTables)
     RenderNameTable(AttributeTables_data(VRAM, nt0), tempBuffer0)
     tempBuffer1 = NameTableArr(NameTables_data(VRAM, nt1),PatternTables)
     RenderNameTable(AttributeTables_data(VRAM, nt1), tempBuffer1)
-    return np.row_stack((np.column_stack((tempBuffer0,tempBuffer1,tempBuffer0)),np.column_stack((tempBuffer0,tempBuffer1,tempBuffer0))))
+    FrameArray[0:480,0:768] = np.row_stack((np.column_stack((tempBuffer0,tempBuffer1,tempBuffer0)),np.column_stack((tempBuffer0,tempBuffer1,tempBuffer0))))
 
-@jit
-def RenderNameTableV(VRAM,PatternTables,nt0,nt2):
+#@njit
+def RenderNameTableV(FrameArray, VRAM, PatternTables, nt0, nt2):
     tempBuffer0 = NameTableArr(NameTables_data(VRAM, nt0),PatternTables)
     RenderNameTable(AttributeTables_data(VRAM, nt0), tempBuffer0)
     tempBuffer2 = NameTableArr(NameTables_data(VRAM, nt2),PatternTables)
     RenderNameTable(AttributeTables_data(VRAM, nt2), tempBuffer2)
-    return np.column_stack((np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0)),np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0))))
+    FrameArray[0:720,0:512] =  np.column_stack((np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0)),np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0))))
     
         
-@jit    
+@njit    
 def RenderNameTables(VRAM,PatternTables,nt0,nt1,nt2,nt3):
         
         tempBuffer0 = AttributeTableArr(AttributeTables_data(VRAM,nt0), NameTableArr(NameTables_data(VRAM,nt0),PatternTables))
@@ -697,19 +624,19 @@ def RenderNameTables(VRAM,PatternTables,nt0,nt1,nt2,nt3):
         return np.row_stack((np.column_stack((tempBuffer3,tempBuffer2)),np.column_stack((tempBuffer1,tempBuffer0))))
 
 
-@jit
+@njit
 def AttributeTables_data(VRAM,offset):
         AttributeTablesAddress = 0x2000 + (offset * 0x400 + 0x3C0)
         AttributeTablesSize = 0x40
         return VRAM[AttributeTablesAddress: AttributeTablesAddress + AttributeTablesSize]
     
-@jit
+@njit
 def NameTables_data(VRAM,offset):
         NameTablesAddress = 0x2000 + offset * 0x400
         NameTablesSize = 0x3C0
         return VRAM[NameTablesAddress: NameTablesAddress + NameTablesSize]
 
-@jit
+@njit
 def RenderScanlineArray(VRAM, NameTable, PatternTable, Scanline):
     offset = (Scanline - 1)  / 8 * 32
     NameTableArray = VRAM[NameTable + offset: NameTable + offset + 32]
@@ -717,7 +644,7 @@ def RenderScanlineArray(VRAM, NameTable, PatternTable, Scanline):
     NoAttriArray = NameTableArr(NameTableArray, PTArr)
     return NoAttriArray
 
-@jit
+@njit
 def paintBuffer(FrameBuffer,Pal,Palettes):
     [rows, cols] = FrameBuffer.shape
     img = np.zeros((rows, cols,3),np.uint8)
@@ -782,7 +709,7 @@ def RenderSpriteArray(BGbuffer, SPRAM, PatternTableArray,  vScroll, HScroll, SP1
     #return BG
 
 
-@jit
+@njit
 def RenderNameTable(AttributeTables, FrameBuffer):
     tempFrame = np.zeros((257, 257),np.uint8)
     for i in range(len(AttributeTables)):
@@ -805,7 +732,7 @@ def RenderNameTable(AttributeTables, FrameBuffer):
 
 
 
-@jit
+@njit
 def NameTableArr(NameTables, PatternTables):
     width = 8 * 32 if len(NameTables) > 0x1f else len(NameTables)  #256
     height = ((len(NameTables) - 1) / 32 + 1) * 8 #240
@@ -819,7 +746,7 @@ def NameTableArr(NameTables, PatternTables):
     return ntbuffer[0:height,0:width]
     
 
-@jit(nopython = True)
+@njit
 def PatternTableArr(Pattern_Tables):
     PatternTable = np.zeros((len(Pattern_Tables)>>4,8,8),np.uint8)
     bitarr = range(0x7,-1,-1)

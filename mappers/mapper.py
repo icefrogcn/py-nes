@@ -35,13 +35,13 @@ class MAPPER(NES):
 '''
     def ReadLow(self,address):#$4100-$7FFF Lower Memory read
         if( address >= 0x6000 ):
-	    return  NES.bank6[address & 0x1FFF]
+            return  NES.bank6[address & 0x1FFF]
         return addr>>8
 
     def WriteLow(self,addr,data): #$4100-$7FFF Lower Memory write
         #$6000-$7FFF WRAM
-	if( addr >= 0x6000 ) :
-	    NES.bank6[addr & 0x1FFF] = data
+        if( addr >= 0x6000 ) :
+            NES.bank6[addr & 0x1FFF] = data
     
     def ExRead(self,addr): #$4018-$40FF Extention register read/write
         return 0
@@ -54,9 +54,9 @@ class MAPPER(NES):
 
     def SetPROM_8K_Bank(self, page, bank):
 
-	bank %= NES.PROM_8K_SIZE
+        bank %= NES.PROM_8K_SIZE
         #print 'DEBUG: NES.PROM_8K_SIZE',NES.PROM_8K_SIZE
-	self.PRGRAM[page] = self.PROM[0x2000*bank:0x2000*bank+0x2000]
+        self.PRGRAM[page] = self.PROM[0x2000*bank:0x2000*bank+0x2000]
         '''if page == 4:
             NES.bank8 = self.PROM[0x2000*bank:0x2000*bank+0x2000]
         elif page == 5:
@@ -73,21 +73,21 @@ class MAPPER(NES):
         
     def SetPROM_32K_Bank0(self,bank):
         self.SetPROM_8K_Bank( 4, bank*4 + 0 )
-	self.SetPROM_8K_Bank( 5, bank*4 + 1 )
-	self.SetPROM_8K_Bank( 6, bank*4 + 2 )
-	self.SetPROM_8K_Bank( 7, bank*4 + 3 )
+        self.SetPROM_8K_Bank( 5, bank*4 + 1 )
+        self.SetPROM_8K_Bank( 6, bank*4 + 2 )
+        self.SetPROM_8K_Bank( 7, bank*4 + 3 )
 
     def SetPROM_32K_Bank(self,bank0,bank1,bank2,bank3):
         self.SetPROM_8K_Bank( 4, bank0 )
-	self.SetPROM_8K_Bank( 5, bank1 )
-	self.SetPROM_8K_Bank( 6, bank2 )
-	self.SetPROM_8K_Bank( 7, bank3 )
+        self.SetPROM_8K_Bank( 5, bank1 )
+        self.SetPROM_8K_Bank( 6, bank2 )
+        self.SetPROM_8K_Bank( 7, bank3 )
 	
     def SetVROM_8K_Bank(self,bank):
         #val1 = MaskVROM(val1, NES.VROM_8K_SIZE)
         #self.VRAM[0:0x2000] = self.VROM[bank * 0x2000 : bank * 0x2000 + 0x2000]
         for i in range(8):
-	    self.SetVROM_1K_Bank( i, bank * 8 + i )
+            self.SetVROM_1K_Bank( i, bank * 8 + i )
 
     def SetVROM_1K_Bank(self, page, bank):
         #print 'DEBUG: NES.VROM_1K_SIZE',NES.VROM_1K_SIZE,hex(len(self.VROM)),hex(len(self.VRAM))
