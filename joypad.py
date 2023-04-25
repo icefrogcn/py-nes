@@ -11,7 +11,8 @@ BUTTON_PRESS = 0x41
 BUTTON_RELEASE = 0x40
 class JOYPAD(NES):
     
-    def __init__(self,debug = False):
+    def __init__(self,consloe,debug = False):
+         self.consloe = consloe
          self.Joypad = [0x40] * 0x8
          #self.Joypad = [0x00] * 0x8
          self.Joypad_Count = 0
@@ -62,7 +63,7 @@ class JOYPAD(NES):
         return joypad_info
 
     def turnoff(self):
-        NES.Running = 0
+        self.consloe.Running = 0
 if __name__ == '__main__':
     JOYPAD = JOYPAD()
 

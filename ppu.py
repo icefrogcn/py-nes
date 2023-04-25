@@ -9,7 +9,7 @@ import numpy as np
 import numba as nb
 from numba import jit,njit
 from numba import jitclass
-from numba import int8,int16
+from numba import uint8,uint16
 
 from nes import NES
 from pal import BGRpal
@@ -45,32 +45,153 @@ SP_PRIORITY_BIT	=	0x20
 SP_COLOR_BIT	=	0x03
 
 
+@jitclass([('VRAM',uint8[:]), \
+           ('SpriteRAM',uint8[:]), \
+           ('Palettes',uint8[:]), \
+           ('Pal',uint8[:,:]), \
+           ('FrameArray',uint8[:,:]), \
+           ('PPUREG',uint8[:]) \
+           ])
+class Memory(object):
+    def __init__(self,Pal):
+        self.VRAM = np.zeros(0x4000,np.uint8)
+        self.SpriteRAM = np.zeros(0x100,np.uint8)
+        self.Palettes = np.zeros(0x20, np.uint8) 
+        self.Pal = Pal
+        self.FrameArray = np.zeros((720, 768),np.uint8)
 
-class PPU(NES):
+        self.PPUREG = np.zeros(0x8, np.uint8) 
+    
+    
+    def read(self,address):
+        addr = address & 0x3FFF
+        data = 0
+        if 0x2000<= addr <0x3F00:
+            t_address = addr - 0x2000
+            t_address %= 0x1000
+            return self.VRAM[t_address + 0x2000]
+        elif(addr >= 0x3000):
+            if addr >= 0x3F00:
+                data &= 0x3F
+                data = self.Palettes[addr & 0x1F]
+            addr &= 0xEFFF
+        else:
+            return self.VRAM[addr]
+        return data
+        
+@jitclass([('reg',uint8[:]), \
+           ('VRAM',uint8[:]), \
+           ('SpriteRAM',uint8[:]), \
+           ('Palettes',uint8[:]), \
+           ('Pal',uint8[:,:]) \
+           ])
+class PPUREG(object):
+    def __init__(self,RAM):
+        self.reg = np.zeros(0x10, np.uint8) 
+        self.VRAM = RAM.VRAM #3FFF #As Byte, VROM() As Byte  ' Video RAM
+        self.SpriteRAM = RAM.SpriteRAM
+        self.Palettes = RAM.Palettes
+        self.Pal = RAM.Pal
+        
+    @property
+    def PPUCTRL(self):
+        return self.reg[0]
+    def PPUCTRL_W(self,value): 
+        self.reg[0] = value
+        
+        
+    @property
+    def PPUMASK(self):
+        return self.reg[1]
+    def PPUMASK_W(self,value):
+        self.reg[1] = value
+        
+    @property
+    def PPUSTATUS(self):
+        return self.reg[2]
+    def PPUSTATUS_W(self,value):
+        self.reg[2] = value
+        
+        
+    @property
+    def OAMADDR(self):
+        return self.reg[3]
+    def OAMADDR_W(self,value):
+        self.reg[3] = value
+        
+    @property
+    def OAMDATA(self):
+        return self.reg[4]
+    def OAMDATA_W(self,value):
+        self.SpriteRAM[self.OAMADDR] = value
+        self.reg[3] = (self.reg[3] + 1) & 0xFF
+        
+    @property
+    def PPUSCROLL(self):
+        return self.reg[5]
+    def PPUSCROLL_W(self,value):
+        self.reg[5] = value
+        
+    @property
+    def PPUADDR(self):
+        return self.reg[6]
+    def PPUADDR_W(self,value):
+        self.reg[6] = value
+        
+    @property
+    def PPUDATA(self):
+        return self.reg[7]
+    def PPUDATA_W(self,value):
+        self.reg[8] = value
+        self.reg[6] &= 0x3FFF
+        if self.reg[6] >= 0x3F00:
+            self.Palettes[self.reg[6] & 0x1F] = value
+            if self.reg[6] & 3 == 0 and value:
+                self.Palettes[(self.reg[6] & 0x1F) ^ 0x10] = value
+        else:
+            self.VRAM[self.reg[6]] = value
+            if (self.reg[6] & 0x3000) == 0x2000:
+                self.VRAM[self.reg[6] ^ self.cartridge.MirrorXor] = value
+        
+        self.reg[6] += 32 if self.reg[0] & 0x04 else 1
+        
+    @property
+    def PPU7_Temp(self):
+        return self.reg[8]
+    def PPU7_Temp_W(self,value):
+        self.reg[8] = value
+        
+    @property
+    def OAMDMA(self):
+        return self.reg[9]
+        
+        
+        
+
+class PPU(object):
 
     CurrentLine = np.uint16(0) #Long 'Integer
 
     NameTable = np.uint8(0)
 
 
-    VRAM = np.zeros(0x4000, np.uint8) #3FFF #As Byte, VROM() As Byte  ' Video RAM
-
+    
     PPU7_Temp = np.uint8(0xFF)
     
     def __init__(self,debug = False):
+        self.RAM = Memory(BGRpal())
+        #self.reg = PPUREG(self.RAM)
+        self.VRAM = self.RAM.VRAM #3FFF #As Byte, VROM() As Byte  ' Video RAM
+        self.SpriteRAM = self.RAM.SpriteRAM
+        self.Palettes = self.RAM.Palettes
+        self.Pal = self.RAM.Pal
+        #self.BGPAL = [0] * 0x10
+        #self.SPRPAL = [0] * 0x10
+
+        self.FrameArray = np.zeros((720, 768),np.uint8)
 
         self.debug = debug
         
-        #6502中没有寄存器，故使用工作内存地址作为寄存器
-        self.PPU_Write = {
-            #0x2000:self.PPU_Control1_W,
-            #0x2001:self.PPU_Control2_W,
-            #0x2003:self.SPR_RAM_Address_W,
-            #0x2004:self.SPR_RAM_W,
-            #0x2005:self.PPU_Scroll_W,
-            #0x2006:self.PPU_Control1_W,
-                }
-
         self.PPU_Read = {
             0x2000:self.PPU7_T,
             0x2001:self.PPU7_T,
@@ -90,6 +211,7 @@ class PPU(NES):
         self.tilebased = False
 
     def pPPUinit(self):
+        
         self.Control1 = np.uint8(0) # $2000
         self.Control2 = np.uint8(0) # $2001
         self.Status = np.uint8(0) # $2002
@@ -97,7 +219,7 @@ class PPU(NES):
         self.AddressHi = np.uint8(0) # $2006, 1st write
         self.Address = 0 # $2006
         self.AddressIsHi = 1
-        self.PPU7_Temp 
+
         self.ScrollToggle = 0 #$2005-$2006 Toggle PPU56Toggle
         self.HScroll = 0
         self.vScroll = 0
@@ -122,10 +244,6 @@ class PPU(NES):
         
         self.EmphVal = 0   #???????Color
         
-        #self.VRAM = [0] * 0x4000 #3FFF 
-        #self.VRAM = np.zeros(0x4000, np.uint8) #3FFF #As Byte, VROM() As Byte  ' Video RAM
-        #self.SpriteRAM = [0] * 0x100 #FF# As Byte     
-        self.SpriteRAM = np.zeros(0x100, np.uint8) #'活动块存储器，单独的一块，不占内存
         
 
         self.width,self.height = 257,241
@@ -144,17 +262,12 @@ class PPU(NES):
         
         self.vBuffer = np.array([self.blankLine] * self.height ,dtype=np.uint8)
         
-        self.FrameArray = np.zeros((720, 768),np.uint8)
-
+        
         
         self.PatternTable = np.uint8(0)
 
         #self.Pal = np.array([[item >> 16, item >> 8 & 0xFF ,item & 0xFF] for item in NES.CPal])
-        self.Pal = BGRpal
 
-        self.Palettes = np.zeros(0x20, np.uint8)#[0] * 0x20
-        self.BGPAL = [0] * 0x10
-        self.SPRPAL = [0] * 0x10
         
         
 
@@ -208,15 +321,10 @@ class PPU(NES):
         data = self.PPU7_Temp
         
 
-
-        mmc_info = 0
-        if 0x2000<= addr <=0x2FFF:
-            pass
-            #self.PPU7_Temp = nt(mirror((addr & 0xC00) / 0x400), addr & 0x3FF)
-        elif(addr >= 0x3000):
+        if(addr >= 0x3000):
             if addr >= 0x3F00:
                 data &= 0x3F
-                self.PPU7_Temp = self.Palettes[addr & 0x1F]
+                return self.Palettes[addr & 0x1F]
             addr &= 0xEFFF
         else:
             self.PPU7_Temp = self.VRAM[addr & 0x3FFF]
@@ -230,10 +338,12 @@ class PPU(NES):
     def Read(self,addr):
         try:
             return self.PPU_Read.get(addr)()
+            return self.reg.read(addr)()
         except:
             print "Invalid PPU Read - %s" %hex(addr)
             print (traceback.print_exc())
-            return 0
+            return self.PPU_Read.get(addr)()
+            #return 0
             
         
     def Write(self,address,value):
@@ -243,27 +353,34 @@ class PPU(NES):
             print "Invalid PPU Write - %s : %s" %hex(addr),hex(value)
 '''
         self.PPU7_Temp = value
+        self.reg.PPU7_Temp_W(value)
         addr = address & 0x000F
         if addr == 0:
             self.Control1 = value
-           
+            self.reg.PPUCTRL_W(value)
        
         elif addr == 1:
             self.Control2 = value
-            #print "Write PPU crl2"
+            self.reg.PPUMASK_W(value)
+            
             self.EmphVal = (value & 0xE0) * 2
             
         elif addr == 2:
             self.PPU7_Temp = value
+            self.reg.PPU7_Temp_W(value)
             
         elif addr == 3:
             #print "Write SpriteAddress:",value
             self.SpriteAddress = value
+            self.reg.OAMADDR_W(value)
             
         elif addr == 4:
             #print "Write SpriteRAM:",value
             self.SpriteRAM[self.SpriteAddress] = value
             self.SpriteAddress = (self.SpriteAddress + 1) & 0xFF
+            
+            self.reg.OAMADDR_W(value)
+            
             
         elif addr == 5:
             #print "Write PPU Scroll Register(W2)"
@@ -295,6 +412,7 @@ class PPU(NES):
                 self.AddressIsHi = 0
             else:
                 self.Address = self.AddressHi + value
+                self.reg.PPUADDR_W(self.AddressHi + value)
                 self.AddressIsHi = 1
 
             '''if( not self.ScrollToggle):
@@ -313,6 +431,7 @@ class PPU(NES):
             self.ScrollToggle = not self.ScrollToggle
                 
         elif addr == 7:
+            
             self.PPU7_Temp = value
             self.Address = self.Address & 0x3FFF
 
@@ -329,13 +448,16 @@ class PPU(NES):
                #'VRAM((PPUAddress And 0x3F1F) Or 0x10) = value  'DF: All those ref's lied. The palettes don't mirror
             else:
                 if (self.Address & 0x3000) == 0x2000:
-                    self.VRAM[self.Address ^ NES.MirrorXor] = value
+                    self.VRAM[self.Address ^ self.cartridge.MirrorXor] = value
                 self.VRAM[self.Address] = value
                 
             if (self.Control1 & PPU_INC32_BIT) :
                 self.Address = self.Address + 32
             else:
                 self.Address = self.Address + 1
+
+            self.reg.PPUDATA_W(value)
+
                 
     def RenderScanline(self):
         '''if self.CurrentLine == 0:
@@ -462,6 +584,7 @@ class PPU(NES):
         #self.lineBuffer = lineArry
         
     def blitFrame(self):
+        #return
         if self.Control2 & (PPU_SPDISP_BIT|PPU_BGDISP_BIT) == 0 :return
         
         self.sp16 = 1 if self.Control1 & PPU_SP16_BIT else 0
@@ -473,18 +596,18 @@ class PPU(NES):
         #coarseYscroll  = (self.loopy_v & 0x03FF) >> 5
         #coarseXscroll = self.loopy_v & 0x1F
 
-        if NES.Mirroring:
+        if self.cartridge.Mirroring:
             #self.scY = (coarseYscroll << 3) + fineYscroll + ((NTnum>>1) * 240) 
             #self.scX = (coarseXscroll << 3)+ self.loopy_x0 #self.HScroll
             self.scY = self.vScroll + ((NTnum>>1) * 240)
             self.scX = self.HScroll + ((NTnum & 1) * 256)
             
-        if NES.Mirroring == 0:
+        if self.cartridge.Mirroring == 0:
             #self.scY = (coarseYscroll << 3) + fineYscroll + ((NTnum>>1) * 240) #if self.loopy_v&0x0FFF else self.scY
             self.scY = self.vScroll + ((NTnum>>1) * 240) 
             #if self.loopy_v&0x0FFF else self.scY
         
-        RenderBG(self.FrameArray, self.VRAM, self.Control1, self.Mirroring)
+        RenderBG(self.FrameArray, self.VRAM, self.Control1, self.cartridge.Mirroring)
 
         self.RenderSprites()
         
@@ -510,48 +633,7 @@ class PPU(NES):
         
         RenderSpriteArray(self.FrameArray, self.SpriteRAM, PatternTable_Array, self.scY, self.scX, self.sp16, self.ScanlineSPHit)
          
-    '''
-    def RenderBG(self):
-        
-        #PatternTablesAddress = 0x1000 if self.Control1 & PPU_SPTBL_BIT and self.sp_h == 8 else 0
 
-        PatternTablesAddress = (self.Control1 & PPU_BGTBL_BIT) << 8 #* 0x100
-        
-        PatternTable_Array = PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + 0x1000])
-
-        if NES.Mirroring == 1:
-            self.FrameBuffer = RenderNameTableH(PatternTable_Array, 0,1)
-
-        elif NES.Mirroring == 0 :
-            
-            self.FrameBuffer = self.RenderNameTableV(PatternTable_Array, 0,2)
-            
-        elif NES.Mirroring == 2:
-            self.FrameBuffer = self.RenderNameTables(PatternTable_Array, 0,1,2,3)
-        else:
-            self.FrameBuffer = self.RenderNameTables(PatternTable_Array, 0,1,2,3)
-
-
-    
-    def RenderNameTableH(self,VRAMPatternTables,nt0,nt1):
-        tempBuffer0 = AttributeTableArr(self.RenderAttributeTables(nt0), NameTableArr(NameTables_data(VRAM,nt0),PatternTables))
-        tempBuffer1 = AttributeTableArr(self.RenderAttributeTables(nt1), NameTableArr(NameTables_data(nt1),PatternTables))
-        return np.row_stack((np.column_stack((tempBuffer0,tempBuffer1,tempBuffer0)),np.column_stack((tempBuffer0,tempBuffer1,tempBuffer0))))
-    
-    def RenderNameTableV(self,PatternTables,nt0,nt2):
-        tempBuffer0 = AttributeTableArr(self.RenderAttributeTables(nt0), NameTableArr(self.NameTables_data(nt0),PatternTables))
-        tempBuffer2 = AttributeTableArr(self.RenderAttributeTables(nt2), NameTableArr(self.NameTables_data(nt2),PatternTables))
-        return np.column_stack((np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0)),np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0))))
-    
-    def RenderNameTables(self,PatternTables,nt0,nt1,nt2,nt3):
-        
-        tempBuffer0 = AttributeTableArr(self.RenderAttributeTables(nt0), NameTableArr(self.NameTables_data(nt0),PatternTables))
-        tempBuffer1 = AttributeTableArr(self.RenderAttributeTables(nt1), NameTableArr(self.NameTables_data(nt1),PatternTables))
-        tempBuffer2 = AttributeTableArr(self.RenderAttributeTables(nt2), NameTableArr(self.NameTables_data(nt2),PatternTables))
-        tempBuffer3 = AttributeTableArr(self.RenderAttributeTables(nt3), NameTableArr(self.NameTables_data(nt3),PatternTables))
-
-        return np.row_stack((np.column_stack((tempBuffer3,tempBuffer2)),np.column_stack((tempBuffer1,tempBuffer0))))
-'''    
     def RenderAttributeTables(self,offset):
         AttributeTablesAddress = 0x2000 + (offset * 0x400 + 0x3C0)
         AttributeTablesSize = 0x40
@@ -765,124 +847,46 @@ def byte2bit2(byte):
     return  np.array([2 if (byte) & (2**bit) else 0 for bit in range(0x7,-1,-1)], np.uint8)
             
 
-'''
-    def DrawSprites(self,ontop):
+
+@jitclass([('a',uint8),('p',uint8),('reg',uint8[:])])
+class regt(object):
+    def __init__(self,register):
+        self.a = register[0]
+        self.p = register[1]
+        self.reg = register
+
+    def __call__(self):
+        print 'self.a,self.p',self.a,self.p
         
-        if self.Control2 & PPU_SPDISP_BIT == 0 :return
-        
-        SpritePattern = (self.Control1 & PPU_SPTBL_BIT) * 0x200
-        
-        h = 16 if self.Control1 & PPU_SP16_BIT else 8
-        
-        SpriteAddr = 0
-        i,sa = 0,0
-        for spr in range(63,-1,-1):
-            SpriteAddr = 4 * spr
-            attrib = self.SpriteRAM[SpriteAddr + 2]
-            if (attrib & 32) == 0 ^ ontop:
-                X = self.SpriteRAM[SpriteAddr + 3]
-                Y = self.SpriteRAM[SpriteAddr]
-                if Y < 239 and X < 248 :
-                    tileno = self.SpriteRAM[SpriteAddr + 1]
-                    if h == 16 :
-                        SpritePattern = (tileno & 1) * 0x1000
-                        tileno = tileno ^ (tileno & 1)
-                    sa = SpritePattern + 16 * tileno
-                    i = Y * 256 + X + 256
-                    palette = 16 + (attrib & 3) * 4
-
-                    if attrib & 128 :
-                        if attrib & 64:
-                            Xflag = X
-                            i = self.DrawSpritesPixel(i,h,sa,Xflag,Y,palette)
-                            for y1 in range(h-1,0,-1):#= h - 1 To 0 Step -1
-                                if y1 >= 8 :
-                                    Byte1 = VRAM[sa + 8 + y1]
-                                    Byte2 = VRAM[sa + 16 + y1]
-                                else:
-                                    Byte1 = VRAM[sa + y1]
-                                    Byte2 = VRAM[sa + y1 + 8]
-
-                                a = Byte1 * 2048 + Byte2 * 8
-                                for X1 in range(8):#= 0 To 7
-                                    Color = NES.tLook[X1 + a]
-                                    if Color:
-                                        #vBuffer(i + X1) = Color | pal
-                                        self.vBuffer[Y][X1 + X] = self.Pal[Color | pal]
-                                i = i + 256
-                                if i >= 256 * 240:break
-                        else:
-                            i += 7
-                            Xflag = -X
-                            i = self.DrawSpritesPixel(i,h,sa,Xflag,Y,palette)
-                            for y1 in range(h-1,0,-1):#= h - 1 To 0 Step -1
-                                if y1 >= 8 :
-                                    Byte1 = VRAM[sa + 8 + y1]
-                                    Byte2 = VRAM[sa + 16 + y1]
-                                else:
-                                    Byte1 = VRAM[sa + y1]
-                                    Byte2 = VRAM[sa + y1 + 8]
-
-                                a = Byte1 * 2048 + Byte2 * 8
-                                for X1 in range(8):#= 0 To 7
-                                    Color = NES.tLook[X1 + a]
-                                    if Color:
-                                        #vBuffer(i + X1) = Color | pal
-                                        self.vBuffer[Y][X1 - X] = self.Pal[Color | pal]
-                                i = i + 256
-                                if i >= 256 * 240:break
-                    else:
-                        if attrib & 64:
-                            Xflag = X
-                            i = self.DrawSpritesPixel(i,h,sa,Xflag,Y,palette)
-                            
-                        else:
-                            i += 7
-                            Xflag = -X
-                            i = self.DrawSpritesPixel(i,h,sa,Xflag,Y,palette)
-                            
-
-                        
-
-    def DrawSpritesPixel(self,i,h,sa,Xflag,Y,palette):
-                        for y1 in range(h-1,0,-1):#= h - 1 To 0 Step -1
-                            if y1 >= 8 :
-                                Byte1 = self.VRAM[sa + 8 + y1]
-                                Byte2 = self.VRAM[sa + 16 + y1]
-                            else:
-                                Byte1 = self.VRAM[sa + y1]
-                                Byte2 = self.VRAM[sa + y1 + 8]
-
-                            a = Byte1 * 2048 + Byte2 * 8
-                            for X1 in range(8):#= 0 To 7
-                                Color = NES.tLook[X1 + a]
-                                if Color:
-                                    #vBuffer(i + X1) = Color | pal
-                                    self.vBuffer[Y][X1 + Xflag] = self.Pal[self.Palettes[Color | palette]]
-                            i += 256
-                            if i >= 256 * 240:break
-                        return i
-
-                
-
-'''
-
-@jitclass([('a',int8),('p',int16)])
-class reg(object):
-    def __init__(self):
-        self.a = 0#register['a']
-        self.p = 0#register['p']
-
     def r_a(self):
         return a
 
     def w_a(self,value):
         self.a = value
+    
+#@jitclass([('reg',uint8[:])])
+class regt2(object):
+    def __init__(self,regt):
+        self.reg = regt
+        self.a = regt.a
+
+    def __call__(self):
+        print 'self.a,self.p',self.a,self.p
+        
+    def r_a(self):
+        return a
+
+    def w_a(self):
+        self.reg.reg[0] += 10
+        self.reg.a += 100
 
 @jit        
-def adc(reg):
-    reg.a = 1
+def adc1(reg):
+    reg.a += 1
 
+
+def adc2(reg):
+    reg.a += 2
                     
 if __name__ == '__main__':
     #ppu = PPU()
@@ -898,11 +902,36 @@ if __name__ == '__main__':
     #print byte2bit1(0x0) + byte2bit2(0x28)
     #aa = PatternTableArr(np.array([0x10,0,0x44,0,0xfe,0,0x82,00,00,0x28,0x44,0x82,00,0x82,0x82,00],dtype=np.uint8))
 
-    bb = {'a':0,'p':0}
-    test = reg()
+    reg = PPUREG(Memory(BGRpal()))
+    reg.PPUCTRL_W(1)
+    print reg.PPUCTRL
+    
+    bb = np.zeros(2, np.uint8)
+    test = regt(bb)
+    print type(test)#test.a
+    adc1(test)
     print test.a
-    adc(test)
+    adc2(test)
     print test.a
+    test2 = regt2(test)
+    test3 = regt2(test)
+    print test.a
+    print test.reg
+    print test2.reg.a
+    print test2.reg.reg
+    print '---'
+    test2.a = 5
+    print test.a
+    print test.reg
+    print test2.reg.a
+    print test2.a
+    print test2.reg.reg
+    print test3.reg.a
+    print test.a
+    print test3.reg.reg
+    
+    
+    
     
 
 

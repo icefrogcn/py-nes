@@ -12,10 +12,10 @@ import codecs
 
 import cv2
 
-
-import matplotlib.pyplot as plt#约定俗成的写法plt
-from matplotlib.animation import FuncAnimation
+from numba import jit,jitclass
+from numba import int8,uint8,int16,uint16
 import numpy as np
+import numba as nb
 
 import pylab
 
@@ -41,6 +41,69 @@ def rom_ok(data):
     else:
         return False
 
+@jitclass([('info',uint16[:]), \
+           ('PROM_SIZE_array',uint8[:]), \
+           ('VROM_SIZE_array',uint8[:]), \
+           ('PROM',uint8[:]), \
+           ('VROM',uint8[:]) \
+           ])
+class ROM(object):
+    def __init__(self, PROM, VROM):
+        self.info = np.zeros(0x10, np.uint16)
+        self.PROM_SIZE_array = np.zeros(0x40, np.uint8)
+        self.VROM_SIZE_array = np.zeros(0x40, np.uint8)
+        self.PROM = PROM
+        self.VROM = VROM
+        
+    @property
+    def Mapper(self):
+        return self.info[0]
+    def Mapper_W(self,value):
+        self.info[0] = value
+
+    @property
+    def Trainer(self):
+        return self.info[1]
+    def Trainer_W(self,value):
+        self.info[1] = value
+
+    @property
+    def Mirroring(self):
+        return self.info[2]
+    def Mirroring_W(self,value):
+        self.info[2] = value
+
+    @property
+    def FourScreen(self):
+        return self.info[3]
+    def FourScreen_W(self,value):
+        self.info[3] = value
+
+    @property
+    def UsesSRAM(self):
+        return self.info[4]
+    def UsesSRAM_W(self,value):
+        self.info[4] = value
+
+    @property
+    def MirrorXor(self):
+        return self.info[5]
+    def MirrorXor_W(self,value):
+        self.info[5] = value
+
+    #@property
+    def PROM_SIZE(self,value):
+        return self.PROM_SIZE_array[value]
+    def PROM_SIZE_W(self,offset,value):
+        self.PROM_SIZE_array[offset] = value
+
+    #@property
+    def VROM_SIZE(self,value):
+        return self.VROM_SIZE_array[value]
+    def VROM_SIZE_W(self,offset,value):
+        self.VROM_SIZE_array[offset] = value
+
+
 class nesROM(NES):
     HEADER_SIZE = 16
     ROMCtrl = 0
@@ -52,17 +115,12 @@ class nesROM(NES):
     data = []
     filename = ''
 
-    VROM = [] 
+    VROM = []
 
-    '''
-'===================================='
-'           LoadROM(filename)        '
-' Used to Load the NES ROM/VROM to   '
-' specified arrays, gameImage and    '
-' VROM, then figures out what to do  '
-' based on the mapper number.        '
-'===================================='
-'''
+    def __init__(self):
+        pass
+
+
     def LoadROM(self,filename):
         
         self.filename = filename
@@ -73,15 +131,7 @@ class nesROM(NES):
             return False
             
 
-        '''Erase VRAM: Erase VROM: Erase gameImage: Erase bank8: Erase bankA
-        Erase bankC: Erase bankE: Erase bank0: Erase bank6'''
-
         self.SpecialWrite6000 = False
-
-
-        #PrgCount = 0; PrgCount2 = 0; ChrCount = 0; ChrCount2 = 0
-    #nesROMdata
-
 
     
         self.PrgCount = self.GetPROM_SIZE(); self.PrgCount2 = self.PrgCount      #'16kB ROM banks 的数量
@@ -104,6 +154,15 @@ class nesROM(NES):
         print "[ " , self.Mapper , " ] Mapper"
         NES.Mapper = self.Mapper
 
+        self.PROM_8K_SIZE  = self.GetPROM_SIZE() * 2
+        self.PROM_16K_SIZE = self.GetPROM_SIZE()
+        self.PROM_32K_SIZE = self.GetPROM_SIZE() / 2
+
+        self.VROM_1K_SIZE = self.GetVROM_SIZE() * 8
+        self.VROM_2K_SIZE = self.GetVROM_SIZE() * 4
+        self.VROM_4K_SIZE = self.GetVROM_SIZE() * 2
+        self.VROM_8K_SIZE = self.GetVROM_SIZE()
+
         NES.PROM_8K_SIZE  = self.GetPROM_SIZE() * 2
         NES.PROM_16K_SIZE = self.GetPROM_SIZE()
         NES.PROM_32K_SIZE = self.GetPROM_SIZE() / 2
@@ -123,8 +182,6 @@ class nesROM(NES):
         NES.FourScreen = self.ROMCtrl & 0x8
         
         NES.UsesSRAM = True if self.ROMCtrl & 0x2 else False
-
-        
         print "Mirroring=" , NES.Mirroring , " Trainer=" , NES.Trainer , " FourScreen=" , NES.FourScreen , " SRAM=" , NES.UsesSRAM
     
         #Dim PrgMark As Long
@@ -137,6 +194,28 @@ class nesROM(NES):
         if NES.Trainer:
             print "Error: Trainer not yet supported." #, VERSION
             return 0
+
+        self.info = ROM(self.PROM, self.VROM)
+        self.info.Mapper_W(self.Mapper)
+
+        self.info.Trainer_W(self.Trainer)
+        self.info.Mirroring_W(self.Mirroring)
+        self.info.FourScreen_W(self.FourScreen)
+        self.info.UsesSRAM_W(self.UsesSRAM)
+
+        self.info.MirrorXor_W(self.MirrorXor)
+
+        self.info.PROM_SIZE_W(8,self.PROM_8K_SIZE)
+        self.info.PROM_SIZE_W(16,self.PROM_16K_SIZE)
+        self.info.PROM_SIZE_W(32,self.PROM_32K_SIZE)        
+
+        self.info.VROM_SIZE_W(1,self.VROM_1K_SIZE)        
+        self.info.VROM_SIZE_W(2,self.VROM_2K_SIZE)        
+        self.info.VROM_SIZE_W(4,self.VROM_4K_SIZE)        
+        self.info.VROM_SIZE_W(8,self.VROM_8K_SIZE)        
+
+        print self.info.PROM_SIZE_array
+        return NES
         
     def GetPROM_SIZE(self):
         return self.data[0x4]
@@ -146,14 +225,14 @@ class nesROM(NES):
 
     def SetPROM(self):
         '****读取PRG数据****'
-        NES.PROM = np.array(self.data[self.HEADER_SIZE: self.PrgCount2 * 0x4000 + self.HEADER_SIZE], np.uint8)
+        self.PROM = np.array(self.data[self.HEADER_SIZE: self.PrgCount2 * 0x4000 + self.HEADER_SIZE], np.uint8)
 
     def SetVROM(self):
         '****读取CHR数据****'
         self.PrgMark = 0x4000 * self.PrgCount2 + self.HEADER_SIZE
-        NES.VROM = np.zeros(self.ChrCount2 * 0x2000, np.uint8)
+        self.VROM = np.zeros(self.ChrCount2 * 0x2000, np.uint8)
         if self.ChrCount2:
-            NES.VROM = np.array(self.data[self.PrgMark: self.ChrCount2 * 0x2000 + self.PrgMark], np.uint8)
+            self.VROM = np.array(self.data[self.PrgMark: self.ChrCount2 * 0x2000 + self.PrgMark], np.uint8)
             
             #MemCopy (NES.VROM,0, self.data, self.PrgMark, self.ChrCount2 * 0x2000)
             self.AndIt = self.ChrCount - 1
@@ -296,107 +375,15 @@ if __name__ == '__main__':
     #print NES.CPal
     #CPal = [[item >> 16, item >> 8 & 0xFF ,item & 0xFF] for item in NES.CPal]
     #print CPal
-
-    nesROMdata = read_file_to_array('roms//mario.nes')
-    nes_head = nesROMdata[:0x20]
-    #print (nes_head)
-    #print hex(len(nesROMdata))
-    #fig,axes=plt.subplots(nrows=2,ncols=2)#定一个2*2的plot
-    width,height = 256,241
-    #image = Image.new('RGB',(320,240),(255,255,255))
-    #draw = ImageDraw.Draw(image)
-    #newdata = []
-
-    ratio = 1
-
-    cv2.namedWindow('BGR', cv2.WINDOW_NORMAL)
-    A = np.random.randint(0,256,size = (2,10,3),dtype=np.uint8)
-    B = np.random.randint(0,256,size = (1,10,3),dtype=np.uint8)
-    print A
-    print 
-    print B
-    print
-    A[0] = B[0]
-    print A
-    for i in range(10):
-        A = np.random.randint(0,256,size = (height,width,3),dtype=np.uint8)
-        #print A
-        #cv2.imshow("BGR", A)
-        #cv2.waitKey(1)
-    
-    
-    if rom_ok(nes_head):
-        i16K_ROM_NUMBER = get_16k_rom_num(nes_head)
-        ROM,ROM_address_offset_end = get_block(0x10,i16K_ROM_NUMBER,0X4000)
-        #print len(ROM[1]),hex(ROM_address_offset_end)
-
-        
-        i8K_VROM_NUMBER = get_8k_vrom_num(nes_head)
-        VROM,VROM_address_offset_end = get_block(ROM_address_offset_end,i8K_VROM_NUMBER,0x2000)
-        #print len(nesROMdata),hex(VROM_address_offset_end)
-        
-        print hex(len(VROM[0]))
-
-        #font = cv2.FONT_HERSHEY_SIMPLEX
-
-        fps = 0
-        fps_t = ''
-        s_t = 0
-        
-        for i in range(1):
-            fps += 1
-            img=np.zeros([height * ratio,width * ratio,3],np.uint8)
-            #print img[0][0]
-            #print type(img)
-            for i in xrange(0,len(VROM[0]),0x10):
-                pass
-                #print get_Tile(0,i)
-                #A = Tiles_array(get_Tile(0,i))
-                A = Tiles_array(PatternTableArr(getTile(0,i))[0])
-                print A
-                B = np.random.randint(0,256,size = (len(A[0]),len(A),3),dtype=np.uint8)
-                print B
-                cv2.imshow("BGR", A)
-                cv2.waitKey(1)
-                #draw_str(get_Tile(0,i),i/16)
-                #break
-
-                if i>= 0x10*16:
-                    pass
-                    break
-                #cv2.imshow("BGR", A)
-            if time.time() - s_t >= 2:
-                fps_t = 'fps:' + str(fps/(time.time() - s_t))
-                fps = 0
-                s_t = time.time()
-            #else:
-                #s_t = time.time()
-
-            #if key == ord("q"):  
-            #    break
-            #break
-        #tk.mainloop()
-
-    cv2.destroyAllWindows()
+    nesROM().LoadROM('roms//1942.nes')
+    romt = ROM(np.zeros(0x40, np.uint8),np.zeros(0x40, np.uint8))
+    print dir(romt)
 
 
-        
 
 
-    #image = cv2.imread('8x8.png')
-    
-    #cv2.waitKey(0)
-    #cv2.destroyAllWindows()
-    #print(image.shape) # (h,w,c)
-    #print(image.size)
-    #print(image.dtype) 
-    #print(image)
 
-    
-    # convert the images to PIL format...
-    #image = Image.fromarray(image)
-    # ...and then to ImageTk format
-    #image = ImageTk.PhotoImage(image)
+
 
 
 

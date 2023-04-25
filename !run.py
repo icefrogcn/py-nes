@@ -1,14 +1,19 @@
 # -*- coding: UTF-8 -*-
 import os
-import cProfile
+import cProfile,pstats
 
-#import neshardware
-from hardware import run
+from consloe import run
 
 
     
 if __name__ == '__main__':
-    cProfile.run('run()')
+    cp = cProfile.Profile()
+    cp.enable()
+    run()
+    cp.disable()
+    stats = pstats.Stats(cp).sort_stats('cumtime')
+    cp.print_stats()
+    #cProfile.run('run()')
     
 
 

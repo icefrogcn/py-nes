@@ -8,10 +8,10 @@ from numba import jit
 from deco import *
 
 
-@jit
+#@jit
 def ADC(cpu, source):
         #cpu.adrmode(cpu.opcode)
-        temp_value = source
+        temp_value = cpu.Read6502(cpu.savepc)#source
      
         cpu.saveflags = cpu.p & 0x1
         #print "adc6502"

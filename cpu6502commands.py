@@ -1,5 +1,8 @@
 # -*- coding; UTF-8 -*-
-from numba import jit
+from numba import jit,jitclass
+from numba import int8,uint8,int16,uint16
+import numpy as np
+import numba as nb
 import time
 
 #CPU Memory Map
@@ -92,6 +95,9 @@ INS_PHX = 63
 INS_PLX = 64
 INS_PHY = 65
 INS_PLY = 66
+#Ticks = np.zeros(0x100,np.uint8)#[0] * 0x100 # As Byte
+#addrmode = np.zeros(0x100,np.uint8)#[0] * 0x100 # As Byte
+#instruction = np.zeros(0x100,np.uint8)#[0] * 0x100 # As Byte
 Ticks = [0] * 0x100 # As Byte
 addrmode = [0] * 0x100 # As Byte
 instruction = [0] * 0x100 # As Byte
@@ -356,40 +362,68 @@ def init6502():
       Ticks[0xFE] = 7; instruction[0xFE] = INS_INC; addrmode[0xFE] = ADR_ABSX
       Ticks[0xFF] = 2; instruction[0xFF] = INS_NOP; addrmode[0xFF] = ADR_IMP
       return Ticks, instruction, addrmode
-      
+
+@jitclass([('Ticks',uint8[:]), \
+           ('instruction',uint8[:]), \
+           ('addrmode',uint8[:])
+           ])
+class commands(object):
+      def __init__(self, Ticks, instruction, addrmode):
+           self.Ticks = Ticks
+           self.instruction = instruction
+           self.addrmode = addrmode
 
 
+#@jitclass([('Ticks',uint8[:])])           
+class TicksC(object):
+      def __init__(self, Ticks):
+           self.Ticks = Ticks
+
+      def __call__(self,i):
+            return self.Ticks[i]
+
+
+def tt(t):
+      Ticks = t 
+      start = time.clock()
+      for i in range(10000000):
+            aa = t[0xFF]
+      print time.clock() - start
 
 if __name__ == '__main__':
       #nes_ROM_data = read_file_to_array['mario.nes']
       #nes_head = nes_ROM_data[:0x20]
       init6502()
       #print Ticks
-      ticks_dic = {}
-      for i,item in enumerate(Ticks):
-            ticks_dic[i] = item
 
-      #print ticks_dic
-      
+      commands = commands(Ticks, instruction, addrmode)
+      t = TicksC(Ticks)
+      tt(Ticks)
+    
       start = time.clock()
-      #cpu.aa = 200
-    
-    
       for i in range(10000000):
             aa = Ticks[0x00]
       print time.clock() - start
+
+      start = time.clock()
+      for i in range(10000000):
+            aa = Ticks[0xFF]
+      print time.clock() - start
+
+      
+      start = time.clock()
+      for i in range(10000000):
+            aa = instruction[0xFF]
+      print time.clock() - start
+
+
+
+      start = time.clock()
+      for i in range(10000000):
+            aa = addrmode[0xFF]
+      print time.clock() - start
       #print aa
       start = time.clock()
-      
-      for i in range(10000000):
-            aa = ticks_dic[0x00]
-            pass
-      print time.clock() - start
-        
-      #print aa
-        
-
-
 
 
 

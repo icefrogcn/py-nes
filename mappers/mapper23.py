@@ -1,25 +1,26 @@
 # -*- coding: UTF-8 -*-
-import sys
-sys.path.append("..")
 
 
 
-#MAPPER
-from mapper import MAPPER
-
-from nes import NES
+class MAPPER():
 
 
-class MAPPER(MAPPER,NES):
-    reg = [0] * 9
-    irq_enable = 0
-    irq_counter = 0
-    irq_latch = 0
-    irq_clock = 0
-    irq_occur = 0
-    
-    addrmask = 0xFFFF
+    def __init__(self,MAPPER):
+        self.cartridge = MAPPER
+        self.Mapper = self.cartridge.Mapper
 
+        self.reg = [0] * 9
+        self.irq_enable = 0
+        self.irq_counter = 0
+        self.irq_latch = 0
+        self.irq_clock = 0
+        self.irq_occur = 0
+        
+        self.addrmask = 0xFFFF
+
+        print 'init sccess MAPPER ',MAPPER.Mapper
+
+         
     def reset(self):
 
 	for i in range(8) :
@@ -27,60 +28,65 @@ class MAPPER(MAPPER,NES):
 
 	self.reg[8] = 0
 
-        self.SetPROM_32K_Bank(0, 1, NES.PROM_8K_SIZE-2, NES.PROM_8K_SIZE-1 )
-	self.SetVROM_8K_Bank(0)
+        self.cartridge.SetPROM_32K_Bank(0, 1, self.cartridge.PROM_8K_SIZE-2, self.cartridge.PROM_8K_SIZE-1 )
+	self.cartridge.SetVROM_8K_Bank(0)
 	
         return 1
 
+    def WriteLow(self,address,data):
+        self.cartridge.WriteLow(address,data)
+
+    def ReadLow(self,address):
+        return self.cartridge.ReadLow(address)
 
     def Write(self,address,data):#$8000-$FFFF Memory write
         addr = address & self.addrmask
         #print 'irq_occur: ',self.irq_occur
         if addr in (0x8000,0x8004,0x8008,0x800C):
             if self.reg[8]:
-                self.SetPROM_8K_Bank( 6, data )
+                self.cartridge.SetPROM_8K_Bank( 6, data )
             else:
-                self.SetPROM_8K_Bank( 4, data )
+                self.cartridge.SetPROM_8K_Bank( 4, data )
                 
         elif addr ==0x9000:
             #print "data",data
             if data != 0xFF:
                 
                 data &= 0x03
-                if data == 0:NES.Mirroring = 1
-                elif data == 1:NES.Mirroring = 2
-                elif data == 2:NES.Mirroring = 3 #VRAM_MIRROR4L
-                else:NES.Mirroring = 4 #VRAM_MIRROR4H
+                if data == 0:self.cartridge.Mirroring = 1
+                elif data == 1:self.cartridge.Mirroring = 2
+                elif data == 2:self.cartridge.Mirroring = 3 #VRAM_MIRROR4L
+                else:self.cartridge.Mirroring = 4 #VRAM_MIRROR4H
                 #print "Mirroring",NES.Mirroring
-                NES.MirrorXor = ((NES.Mirroring + 1) % 3) * 0x400
+                self.cartridge.MirrorXor = ((self.cartridge.Mirroring + 1) % 3) * 0x400
                 
         elif addr == 0x9008:
             self.reg[8] = data & 0x02
 
         elif addr in (0xA000,0xA004,0xA008,0xA00C):
-            self.SetPROM_8K_Bank( 5, data )
+            self.cartridge.SetPROM_8K_Bank( 5, data )
 
         elif 0xB000 <= addr < 0xF000: 
             if (addr & 0xF) == 0x000:
                 page = ((addr >> 12) - 11) * 2
                 self.reg[page] = (self.reg[page] & 0xF0) | (data & 0x0F)
-                self.SetVROM_1K_Bank( page, self.reg[page] )
+                self.cartridge.SetVROM_1K_Bank( page, self.reg[page] )
                 
             elif (addr & 0xF) in (0x001,0x004):
                 page = ((addr >> 12) - 11) * 2
                 self.reg[page] = (self.reg[page] & 0x0F) | ((data & 0x0F) << 4)
-                self.SetVROM_1K_Bank( page, self.reg[page])
+                self.cartridge.SetVROM_1K_Bank( page, self.reg[page])
                             
             elif (addr & 0xF) in (0x002,0x008):
                 page = ((addr >> 12) - 11) * 2 + 1
                 self.reg[page] = (self.reg[page] & 0xF0) | (data & 0x0F)
-                self.SetVROM_1K_Bank( page, self.reg[page] )
+                self.cartridge.SetVROM_1K_Bank( page, self.reg[page] )
 
                             
             elif (addr & 0xF) in (0x003,0x00C):
                 page = ((addr >> 12) - 11) * 2 + 1
                 self.reg[page] = (self.reg[page] & 0x0F) | ((data & 0x0F) << 4);
-                self.SetVROM_1K_Bank( page, self.reg[page] )
+                self.cartridge.SetVROM_1K_Bank( page, self.reg[page] )
 
         elif addr == 0xF008:
             self.irq_enable = data & 0x03

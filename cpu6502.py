@@ -23,6 +23,8 @@ from cpu6502commands import *
 
 from cpu6502instructions import *
 
+import cpu6502addressmode as addressmode
+
 from deco import *
 from vbfun import MemCopy
          
@@ -69,7 +71,8 @@ class reg(object):
            ('bank8',uint8[:]), \
            ('bankA',uint8[:]), \
            ('bankC',uint8[:]), \
-           ('bankE',uint8[:])])
+           ('bankE',uint8[:]), \
+           ('PRGRAM',uint8[:,:])])
 class Memory(object):
     def __init__(self):
         self.RAM = np.zeros(0x2000,np.uint8)
@@ -79,8 +82,19 @@ class Memory(object):
         self.bankA = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
         self.bankC = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
         self.bankE = np.zeros(0x2000,np.uint8)#[0] * 8192 #As Byte
+        self.PRGRAM = np.zeros((8,0x2000), np.uint8)
 
-class cpu6502(MMC,NES):
+    def Read(self,address):
+        bank = address >> 13
+        value = 0
+        if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
+            return self.bank0[address & 0x7FF]
+        elif bank > 0x03:
+            return self.PRGRAM[bank, address & 0x1FFF]
+        
+        
+
+class cpu6502(MMC):
     
     AddressMask =0 #Long 'Integer
 
@@ -107,26 +121,6 @@ class cpu6502(MMC,NES):
 
 
     CPU_MEM_BANK = 8
-    RAM = np.zeros(0x2000,np.uint8)
-    #bank0 = np.zeros(2048,np.uint8)#[0]*2048 #As Byte ' RAM            主工作内存
-    #bank6 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte ' SaveRAM        记忆内存
-    #bank8 = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte '8-E are PRG-ROM.主程序
-    #bankA = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
-    #bankC = np.zeros(0x2000,np.uint8)#[0]*8192 #As Byte
-    #bankE = np.zeros(0x2000,np.uint8)#[0] * 8192 #As Byte
-
-
-    '''
-    bank6 = [0]*8192 #As Byte ' SaveRAM        记忆内存
-    bank8 = [0]*8192 #As Byte '8-E are PRG-ROM.主程序
-    bankA = [0]*8192 #As Byte
-    bankC = [0]*8192 #As Byte
-    bankE = [0] * 8192 #As Byte
-    '''
-
-    #bank0 = [0]* 0x800 #As Byte ' RAM            主工作内存
-    
-
     
     totalFrame = 0
     
@@ -137,7 +131,7 @@ class cpu6502(MMC,NES):
     tilebased = True
     
 
-    def __init__(self, PRGRAM, PPU, APU, JOYPAD1, JOYPAD2, MAPPER):
+    def __init__(self, _consloe):
         self.PC = np.uint16(0) #             16 bit 寄存器 其值为指令地址
         self.a = np.uint8(0) #                '累加器
         self.X = np.uint8(0) #                '寄存器索引
@@ -152,27 +146,27 @@ class cpu6502(MMC,NES):
         self.reg = reg()
         self.RAM = Memory()
         self.bank0 = self.RAM.bank0
-        self.bank6 = self.RAM.bank8
+        self.bank6 = self.RAM.bank6
         self.bank8 = self.RAM.bank8
         self.bankA = self.RAM.bankA
         self.bankC = self.RAM.bankC
         self.bankE = self.RAM.bankE
+        self.PRGRAM = self.RAM.PRGRAM
         
         
         self.debug = False
-        self.MapperWriteFlag = False
+        self.MapperWriteFlag = 0
         self.MapperWriteData = {'Address':0,'value':0}
 
-        self.FrameFlag = False
+        self.FrameFlag = 0
 
-        self.PRGRAM = PRGRAM
-        self.PPU = PPU
-        self.APU = APU
-        self.JOYPAD1 = JOYPAD1
-        self.JOYPAD2 = JOYPAD2
-        self.MAPPER = MAPPER
-
-        self.CPURunning = True
+        self.consloe = _consloe
+        self.PPU = _consloe.PPU
+        self.APU = _consloe.APU
+        self.JOYPAD1 = _consloe.JOYPAD1
+        self.JOYPAD2 = _consloe.JOYPAD2
+        
+        self.CPURunning = 1
         
         self.addrmode = addrmode
         self.instructions = instruction
@@ -284,7 +278,7 @@ class cpu6502(MMC,NES):
              #INS_AND: self.and6502,
              #INS_NOP: self.nop6502,
              #INS_BRK: self.brk6502,
-             INS_ADC: ADC(self.reg, self.Read6502(self.savepc)),
+             INS_ADC: ADC(self, None),
              #INS_EOR: self.eor6502,
              #INS_ASL: self.asl6502,
              #INS_ASLA: self.asla6502,
@@ -337,19 +331,19 @@ class cpu6502(MMC,NES):
 
         self.new_adrmode ={
             ADR_ABS: self.abs6502,
-            ADR_ABSX: self.absx6502,
-            ADR_ABSY: self.absy6502,
-            ADR_IMP: ' nothing really necessary cause implied6502 = ""',
-            ADR_IMM: self.imm6502,
-            ADR_INDABSX: self.indabsx6502,
-            ADR_IND: self.indirect6502,
-            ADR_INDX: self.indx6502,
-            ADR_INDY: self.indy6502,
-            ADR_INDZP: self.indzp6502,
-            ADR_REL: self.rel6502,
-            ADR_ZP: self.zp6502,
-            ADR_ZPX: self.zpx6502,
-            ADR_ZPY: self.zpy6502
+            #ADR_ABSX: self.absx6502,
+            #ADR_ABSY: self.absy6502,
+            #ADR_IMP: ' nothing really necessary cause implied6502 = ""',
+            #ADR_IMM: self.imm6502,
+            #ADR_INDABSX: self.indabsx6502,
+            #ADR_IND: self.indirect6502,
+            #ADR_INDX: self.indx6502,
+            #ADR_INDY: self.indy6502,
+            #ADR_INDZP: self.indzp6502,
+            #ADR_REL: self.rel6502,
+            #ADR_ZP: self.zp6502,
+            #ADR_ZPX: self.zpx6502,
+            #ADR_ZPY: self.zpy6502
             }
 
 
@@ -397,19 +391,9 @@ class cpu6502(MMC,NES):
     
     def exec6502(self,fun_type = 'normal'):
 
-        PC = np.uint16(0) #             16 bit 寄存器 其值为指令地址
-        a = np.uint8(0) #                '累加器
-        X = np.uint8(0) #                '寄存器索引
-        Y = np.uint8(0) #                '寄存器2
-        S = np.uint8(0) #                '堆栈寄存器
-        p = np.uint8(0) #                '标志寄存器
-        savepc = np.uint16(0) # As Long
-        saveflags = np.uint16(0) # As Long 'Integer
-        clockticks6502 = np.uint16(0) # As Long
-
-        exec6502new(self)
+        #exec6502new(self)
         
-        while self.CPURunning:
+        while self.consloe.Running:
 
             if self.FrameFlag or self.MapperWriteFlag:
                     
@@ -421,14 +405,7 @@ class cpu6502(MMC,NES):
 
             instruction = self.instructions[self.opcode]
 
-            sync_cpu2reg(reg)
-            if instruction == INS_ADC:
-                self.adrmode(self.opcode)
-                #cpu6502instructions.ADC(self, None)
-                ADC(self.reg, self.Read6502(self.savepc))
-                sync_reg2cpu(reg)
-            else:
-                self.instruction_dic.get(instruction)()
+            self.instruction_dic.get(instruction)()
 
             if self.clockticks6502 > self.maxCycles1:
                 self.Scanline()
@@ -472,7 +449,7 @@ class cpu6502(MMC,NES):
                     #self.PPU.Frames += 1
                     #print NES.Frames
                     self.PPU.Status = 0x0
-                    self.FrameFlag = True
+                    self.consloe.ShowFPS()
                 else:
                     self.PPU.CurrentLine +=  1
                 
@@ -1103,40 +1080,31 @@ class cpu6502(MMC,NES):
         return self.Read6502(Address) + (self.Read6502(Address + 1) << 8)
 
     #@jit
-    def Read6502(self, Address):
-        addr = Address >> 13
+    def Read6502(self, address):
+        bank = address >> 13
         value = 0
-        if addr == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
-            return RamRead(Address,self.bank0)
+        if bank in (0x00,0x04,0x05,0x06,0x07):                        # Address >=0x0 and Address <=0x1FFF:
+            return self.RAM.Read(address)
         
-        elif addr >0x03:
-            return MapperRead(Address,self.PRGRAM)
-       
-        elif addr == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
+        elif bank == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
             if self.PPU.Running:
-                value = self.PPU.Read(Address)
+                value = self.PPU.Read(address)
             else:
-                value = PPURead(Address,self.PRGRAM)
+                return self.PRGRAM[1, address & 0x0007]
 
-        elif (Address >=0x4000 and Address <=0x4013) or Address == 0x4015:
-            value = self.APU.Sound[Address - 0x4000]
+        elif (address >=0x4000 and address <=0x4013) or address == 0x4015:
+            return self.APU.Sound[address - 0x4000]
         
-        elif Address == 0x4016:
-            #print "Read JOY1"
-            #return 0x40
+        elif address == 0x4016: #"Read JOY1"
             value = self.JOYPAD1.Read()
 
-        elif Address == 0x4017:
-            #print "Read JOY2 "
-            #pass
+        elif address == 0x4017: #"Read JOY2 "
             value = self.JOYPAD2.Read()
-        elif addr == 0x03: #Address == 0x6000 -0x7FFF:
-            print "Read  ReadLow"
-            value = self.MAPPER.ReadLow(Address)
-        else:
-            print hex(Address)
-            print "Read HARD bRK"#,self.debug() ###########################
-        return value
+            
+        elif bank == 0x03: #Address == 0x6000 -0x7FFF:
+            return self.MAPPER.ReadLow(address)
+            
+        return value  
 
 #'=========================================='
 #'           Write6502(Address,value)       '
@@ -1172,7 +1140,7 @@ class cpu6502(MMC,NES):
 
             elif NES.UsesSRAM:
                 if Mapper != 69:
-                    self.bank6[Address & 0x1FFF] = value
+                    self.PRGRAM[3, Address & 0x1FFF] = value
 
         elif addr >= 0x04: #Address >=0x8000 and Address <=0xFFFF:
             self.MapperWrite(Address, value)
@@ -1204,28 +1172,18 @@ class cpu6502(MMC,NES):
     def MapperWrite(self,Address, value):
         #print "MapperWrite"
         if NES.newmapper_debug:
-                exsound_enable =  self.MAPPER.Write(Address, value)
+            exsound_enable =  self.MAPPER.Write(Address, value)
                 
-                if exsound_enable:
-                    self.APU.ExWrite(Address, value)
+            if exsound_enable:
+                self.APU.ExWrite(Address, value)
                     
-        else:        
+        else:
+            #self.consloe.MapperWrite(self.MapperWriteData)
             self.MapperWriteFlag = True
             self.MapperWriteData['Address'] = Address
             self.MapperWriteData['value'] = value
     
-    def MapperRead(self,address,PRGRAM):
-        bank = address >> 13
-        addr = address & 0x1FFF
-        return PRGRAM[bank][addr]
-        '''if addr == 0x04:                      #Address >=0x8000 and Address <=0x9FFF:
-            return self.bank8[address & 0x1FFF]
-        elif addr == 0x05:                      #Address >=0xA000 and Address <=0xBFFF:
-            return self.bankA[address & 0x1FFF]
-        elif addr == 0x06:                      #Address >=0xC000 and Address <=0xDFFF:
-            return self.bankC[address & 0x1FFF]
-        elif addr == 0x07:                      #Address >=0xE000 and Address <=0xFFFF:
-            return self.bankE[address & 0x1FFF]'''
+
 
 #@jit(forceobj=True)
 def exec6502new(cpu):
@@ -1240,11 +1198,11 @@ def exec6502new(cpu):
             cpu.clockticks6502 += cpu.Ticks[cpu.opcode]
 
             instruction = cpu.instructions[cpu.opcode]
-            #if instruction == INS_ADC:
-            #    #print self.opcode
-            #    self.adrmode(self.opcode)
-            #    cpu6502instructions.ADC(self, None)
-            #else:
+            '''if instruction == INS_ADC:
+                #print self.opcode
+                cpu.adrmode(cpu.opcode)
+                ADC(cpu, None)
+            else:'''
             cpu.instruction_dic.get(instruction)()
 
             if cpu.clockticks6502 > cpu.maxCycles1:
@@ -1287,12 +1245,6 @@ def Read6502(cpu, address):
 
 
 
-        
-@jit
-def MapperRead(address,PRGRAM):
-        bank = address >> 13
-        addr = address & 0x1FFF
-        return PRGRAM[bank,addr]
 
 @jit
 def PPUWrite(address,value,PRGRAM):

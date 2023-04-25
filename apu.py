@@ -3,6 +3,7 @@
 import time
 import rtmidi
 import math
+from numba import jit
 
 from nes import NES
 
@@ -71,19 +72,7 @@ class APU(NES):
             self.PlayTriangle(2)
             self.PlayNoise(3)
 
-    #'Calculates a midi tone given an nes frequency.
-    #'Frequency passed is actual interval in 1/65536's of a second (I hope)
-    def getTone(self, freq): #As Long
-        if freq <= 0:
-            return 0
-        
-        freq = 65536 / freq
-        t = math.log(freq / 8.176) / math.log(1.059463)
-        
-        t = 1 if t < 1 else t
-        t = 127 if t > 127 else t
 
-        return t
 
     def playfun(self,ch,v):
         
@@ -97,7 +86,7 @@ class APU(NES):
                         #print 
                         self.ChannelWrite[ch] = False
                         self.lastFrame[ch] = NES.Frames + length
-                        self.playTone(ch, self.getTone(frequency), volume)
+                        self.playTone(ch, getTone(frequency), volume)
                     
                 else:
                     self.stopTone(ch)
@@ -116,33 +105,7 @@ class APU(NES):
     def PlayRect(self,ch):
         volume = self.Sound[ch * 4 + 0] & 15
         self.playfun(ch,volume)
-        '''if self.SoundCtrl and self.pow2[ch] :
-            volume = self.Sound[ch * 4 + 0] & 15 #'Get volume'
-            length = self.vlengths[self.Sound[ch * 4 + 3] // 8] #'Get length'
-            if volume > 0 :
-                frequency = self.Sound[ch * 4 + 2] + (self.Sound[ch * 4 + 3] & 7) * 256 #'Get frequency'
-                if frequency > 1 :
-                    if self.ChannelWrite[ch] : #Ensures that a note doesn't replay unless memory written
-                        #print 
-                        self.ChannelWrite[ch] = False
-                        #lastFrame[ch] = Frames + length
-                        self.playTone(ch, self.getTone(frequency), volume)
-                    
-                else:
-                    self.stopTone(ch)
-                
-            else:
-                self.stopTone(ch)
-            
-        else:
-            self.ChannelWrite[ch] = True
-            self.stopTone(ch)
-
-        If Frames >= lastFrame(ch) Then
-            stopTone ch
-        End If
-'''
-    
+   
     
     def PlayTriangle(self,ch):
         v = 9 #'triangle'
@@ -190,7 +153,20 @@ class APU(NES):
             self.tones[channel] = 0
             self.volume[channel] = 0
 
+#'Calculates a midi tone given an nes frequency.
+#'Frequency passed is actual interval in 1/65536's of a second (I hope)
+@jit
+def getTone(freq): #As Long
+        if freq <= 0:
+            return 0
+        
+        freq = 65536 / freq
+        t = math.log(freq / 8.176) / math.log(1.059463)
+        
+        t = 1 if t < 1 else t
+        t = 127 if t > 127 else t
 
+        return t
 
 
 '''

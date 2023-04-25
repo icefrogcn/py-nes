@@ -1,6 +1,12 @@
 # -*- coding: UTF-8 -*-
 
-from mapper import *
+__all__ = ['mapper',
+           'mapper0',
+           'mapper2',
+           'mapper23'
+           ]
+
+from . import *
 
 
 

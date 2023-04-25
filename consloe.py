@@ -37,66 +37,34 @@ from nes import NES
 from mmc import MMC
 
 
-class neshardware(MMC, NES):       
+class CONSLOE(MMC, NES):       
     #EmphVal =0
 
     romName =''
 
-
-
-
-    'DF: powers of 2'
-    pow2 = [0]*(31) #As Long
-
-    tilebased = False
-
-        # NES Hardware defines
-
-    
-
-    ROM = ROM()
-    reg8 = 0 # As Byte
-    regA = 0 # As Byte
-    regC = 0 # As Byte
-    regE = 0 # As Byte
-
-    NESPal = [0]*0xF #As Byte
-
-        #Public CPal() As Long
-
-
     FrameSkip = 0 #'Integer
 
 
-    PatternTable =0 #Long
-    NameTable =0 #Long
-
-    bank_regs = [0]*16 #Byte
-
-   
-    
     
     def __init__(self,debug = False):
         NESLoop = 0
-        CPURunning = True
-        FirstRead = True
+        CPURunning = 1
+        FirstRead = 1
 
-        SpriteAddress = 0
-        self.debug = debug
         
+        self.debug = debug
+        self.ROM = ROM()
         self.PPU = PPU()
         
         self.APU = APU()
-        self.JOYPAD1 = JOYPAD()
-        self.JOYPAD2 = JOYPAD()
+        self.JOYPAD1 = JOYPAD(self)
+        self.JOYPAD2 = JOYPAD(self)
 
-        self.PRGRAM = np.zeros((8,0x2000), dtype=np.uint8)
-
-        
+               
         #self.CPURunning = cpu6502.CPURunning
 
     def LoadROM(self,filename):
-        self.ROM.LoadROM(filename)
+        self.NES = self.ROM.LoadROM(filename)
         
             
     def PowerON(self):
@@ -112,30 +80,30 @@ class neshardware(MMC, NES):
         self.PPU.pPPUinit()
         self.APU.pAPUinit()
 
-        
+        self.CPU = cpu6502(self)
+
+        MAPPER = __import__('mappers')
+        cartridge = MAPPER.mapper.MAPPER(self.ROM.info,self.CPU.PRGRAM,self.PPU.VRAM)
+        self.PPU.cartridge = cartridge
         try:
-            PRGRAM = 'self.PRGRAM'
-            VRAM = 'self.PPU.VRAM'
-            mapper = __import__('mappers',fromlist = ['mapper%d' %self.Mapper])
 
-            self.MAPPER = eval('mapper.mapper%d.MAPPER(%s,%s)' %(self.Mapper,PRGRAM,VRAM))
-
-            self.cpu6502 = cpu6502(self.PRGRAM,self.PPU, self.APU, self.JOYPAD1, self.JOYPAD2, self.MAPPER)
-            self.cpu6502.debug = debug
-
+            
+            self.MAPPER = eval('MAPPER.mapper%d.MAPPER(cartridge)' %(self.ROM.Mapper))
+            self.CPU.MAPPER = self.MAPPER
+            
             self.MAPPER.reset()
-            print self.cpu6502.PRGRAM
-            #self.cpu6502.PRGRAM = self.MAPPER.reset()
-            print  type(self.cpu6502.PRGRAM)
+            
+            self.CPU.debug = debug
+
             print "NEW MAPPER process"
             NES.newmapper_debug = 1
             LoadNES = 1
         except:
             print (traceback.print_exc())
             NES.newmapper_debug = 0
-            mapper = __import__('mappers')
-            self.MAPPER = mapper.MAPPER(self.PRGRAM,self.PPU.VRAM)
-            self.cpu6502 = cpu6502(self.PRGRAM,self.PPU, self.APU, self.JOYPAD1, self.JOYPAD2, self.MAPPER)
+            
+            self.MAPPER = cartridge
+            self.CPU.MAPPER = self.MAPPER
             LoadNES = self.MapperChoose(NES.Mapper)
             print 'OLD MapperWrite'
                 
@@ -144,6 +112,8 @@ class neshardware(MMC, NES):
             else:
                 pass
         
+        print self.CPU.PRGRAM
+        print type(self.CPU.PRGRAM)
 
         
         if LoadNES == 0 :
@@ -151,52 +121,40 @@ class neshardware(MMC, NES):
 
  
         print "Successfully loaded %s" %self.ROM.filename
-        self.cpu6502.reset6502()
+        self.CPU.reset6502()
         #self.cpu6502.PPU.MirrorXor = self.ROM.MirrorXor # As Long 'Integer
 
-        start = time.time()
-        starttk = time.time()
-        totalFrame = 0
+        self.start = time.time()
+        self.totalFrame = 0
 
         self.PPU.ScrollToggle = 1
         self.PowerON()
         self.PPU.ScreenShow()
         
-        NES.Running = 1
-        while NES.Running:
+        self.Running = 1
+        while self.Running:
 
-            self.cpu6502.exec6502()
-            if self.cpu6502.MapperWriteFlag:
-                self.MapperWrite(self.cpu6502.MapperWriteData)
-
-            if time.time() - start > 4:
-                FPS =  'FPS: %d'%(totalFrame >> 2) # 
-                if self.cpu6502.PPU.debug == False:
-                    
-                    cv2.setWindowTitle('Main',"%s %d %d %d"%(FPS,self.cpu6502.PPU.CurrentLine,self.cpu6502.PPU.vScroll,self.cpu6502.PPU.HScroll))
-                else:
-                    print FPS,self.cpu6502.PPU.render,self.cpu6502.PPU.tilebased
-                start = time.time()
-                totalFrame = 0
-
+            self.CPU.exec6502()
+            if self.CPU.MapperWriteFlag:
+                self.MapperWrite(self.CPU.MapperWriteData)
+           
             
-            totalFrame += 1 if self.cpu6502.FrameFlag else 0
-            #print self.cpu6502.PPU.VRAM
-            self.cpu6502.FrameFlag = False
+            
 
         self.PowerOFF()
-        '''If Mirroring = 1 Then MirrorXor = &H800& Else MirrorXor = &H400&
-    
 
-    CurrentLine = 0
-    For i = 0 To 7
-        Joypad1(i) = &H40
-    Next i
-    Frames = 0
-    CPUPaused = False
-    ScrollToggle = 1
-    LoadNES = 1
-'''
+    def ShowFPS(self):
+        if time.time() - self.start > 4:
+                FPS =  'FPS: %d'%(self.totalFrame >> 2) # 
+                if self.CPU.PPU.debug == False:
+                    
+                    cv2.setWindowTitle('Main',"%s %d %d %d"%(FPS,self.CPU.PPU.CurrentLine,self.CPU.PPU.vScroll,self.CPU.PPU.HScroll))
+                else:
+                    print FPS,self.CPU.PPU.render,self.CPU.PPU.tilebased
+                self.start = time.time()
+                self.totalFrame = 0
+        self.totalFrame += 1
+        
     def MapperChoose(self,MapperType):
         MapperChoose = 1
         if MapperType == 0:
@@ -262,7 +220,7 @@ class neshardware(MMC, NES):
     '===================================='
 
     def MapperWrite(self,MapperWriteData):
-        self.cpu6502.MapperWriteFlag = False
+        self.CPU.MapperWriteFlag = False
         if NES.Mapper == 0:
             pass
         elif NES.Mapper == 2:
@@ -287,13 +245,13 @@ class neshardware(MMC, NES):
     def Select8KVROM(self, val1):
         #val1 = self.MaskVROM(val1, NES.VROM_8K_SIZE)
         #self.cpu6502.PPU.VRAM[0:0x2000] = MMC.Select8KVROM(self, val1, self.ROM.VROM)
-        self.cpu6502.PPU.VRAM[0:0x2000] = NES.VROM[val1 * 0x2000 : val1 * 0x2000 + 0x2000]
-        #MemCopy(self.cpu6502.PPU.VRAM, 0, self.ROM.VROM, val1 * 0x2000, 0x2000)
+        self.PPU.VRAM[0:0x2000] = self.ROM.VROM[val1 * 0x2000 : val1 * 0x2000 + 0x2000]
+
 
     def Select1KVROM(self, val1, bank):
         val1 = self.MaskVROM(val1, self.ROM.ChrCount * 8)
         if NES.Mapper == 4:
-            MemCopy(self.PPU.VRAM, (MMC.MMC3_ChrAddr ^ (bank * 0x400)), NES.VROM, (val1 * 0x400), 0x400)
+            MemCopy(self.PPU.VRAM, (MMC.MMC3_ChrAddr ^ (bank * 0x400)), self.ROM.VROM, (val1 * 0x400), 0x400)
             
         elif NES.Mapper == 23:
             pass
@@ -319,10 +277,10 @@ class neshardware(MMC, NES):
         self.cpu6502.bankE = np.array(self.PRGROM[self.regE * 0x2000: self.regE * 0x2000 + 0x2000], np.uint8)
         '''
 
-        MemCopy(self.PRGRAM[4], 0, self.ROM.PROM, self.reg8 * 0x2000, 0x2000)
-        MemCopy(self.PRGRAM[5], 0, self.ROM.PROM, self.regA * 0x2000, 0x2000)
-        MemCopy(self.PRGRAM[6], 0, self.ROM.PROM, self.regC * 0x2000, 0x2000)
-        MemCopy(self.PRGRAM[7], 0, self.ROM.PROM, self.regE * 0x2000, 0x2000)
+        MemCopy(self.CPU.PRGRAM[4], 0, self.ROM.PROM, self.reg8 * 0x2000, 0x2000)
+        MemCopy(self.CPU.PRGRAM[5], 0, self.ROM.PROM, self.regA * 0x2000, 0x2000)
+        MemCopy(self.CPU.PRGRAM[6], 0, self.ROM.PROM, self.regC * 0x2000, 0x2000)
+        MemCopy(self.CPU.PRGRAM[7], 0, self.ROM.PROM, self.regE * 0x2000, 0x2000)
         #print len(self.CPU.bankE)
 
     
@@ -455,11 +413,11 @@ def run(debug = False):
         show_choose(ROMS_INFO)
         gn = input("choose a number: ")
         print gn
-        if gn == 'c':
+        if gn == 999:
             break
         if not gn <= len(ROMS):
             continue
-        fc = neshardware(debug)
+        fc = CONSLOE(debug)
         #fc.debug = True
         fc.LoadROM(ROMS_DIR + ROMS[gn])
         fc.PPU.Running = 1
