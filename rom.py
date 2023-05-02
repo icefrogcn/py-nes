@@ -26,13 +26,7 @@ from wrfilemod import *
 from vbfun import MemCopy
 
 from nes import NES
-from pal import BGRpal
-from ppu import PatternTableArr
 
-nesROMdata =[]
-i16K_ROM_NUMBER = 0
-i8K_VROM_NUMBER = 0
-ROM = []
 
 def rom_ok(data):
     if ''.join([chr(i) for i in data[:0x4]]) == 'NES\x1a':
@@ -44,14 +38,18 @@ def rom_ok(data):
 @jitclass([('info',uint16[:]), \
            ('PROM_SIZE_array',uint8[:]), \
            ('VROM_SIZE_array',uint8[:]), \
+           ('PROM_16K_SIZE',uint8), \
+           ('VROM_8K_SIZE',uint8), \
            ('PROM',uint8[:]), \
            ('VROM',uint8[:]) \
            ])
 class ROM(object):
-    def __init__(self, PROM, VROM):
+    def __init__(self, PROM = np.zeros(0x40, np.uint8), VROM = np.zeros(0x40, np.uint8)):
         self.info = np.zeros(0x10, np.uint16)
         self.PROM_SIZE_array = np.zeros(0x40, np.uint8)
         self.VROM_SIZE_array = np.zeros(0x40, np.uint8)
+        self.PROM_16K_SIZE = 0
+        self.VROM_8K_SIZE = 0
         self.PROM = PROM
         self.VROM = VROM
         
@@ -91,17 +89,25 @@ class ROM(object):
     def MirrorXor_W(self,value):
         self.info[5] = value
 
-    #@property
-    def PROM_SIZE(self,value):
-        return self.PROM_SIZE_array[value]
-    def PROM_SIZE_W(self,offset,value):
-        self.PROM_SIZE_array[offset] = value
+    @property
+    def PROM_8K_SIZE(self):
+        return self.PROM_16K_SIZE << 1
+    @property
+    def PROM_32K_SIZE(self):
+        return self.PROM_16K_SIZE >> 1
+    @property
+    def VROM_1K_SIZE(self):
+        return self.VROM_8K_SIZE << 3
+    @property
+    def VROM_2K_SIZE(self):
+        return self.VROM_8K_SIZE << 2
+    @property
+    def VROM_4K_SIZE(self):
+        return self.VROM_8K_SIZE << 1
 
-    #@property
-    def VROM_SIZE(self,value):
-        return self.VROM_SIZE_array[value]
-    def VROM_SIZE_W(self,offset,value):
-        self.VROM_SIZE_array[offset] = value
+
+ROM_class_type = nb.deferred_type()
+ROM_class_type.define(ROM.class_type.instance_type)
 
 
 class nesROM(NES):
@@ -195,26 +201,22 @@ class nesROM(NES):
             print "Error: Trainer not yet supported." #, VERSION
             return 0
 
-        self.info = ROM(self.PROM, self.VROM)
-        self.info.Mapper_W(self.Mapper)
+        self.ROM = ROM(self.PROM, self.VROM)
+        self.ROM.Mapper_W(self.Mapper)
 
-        self.info.Trainer_W(self.Trainer)
-        self.info.Mirroring_W(self.Mirroring)
-        self.info.FourScreen_W(self.FourScreen)
-        self.info.UsesSRAM_W(self.UsesSRAM)
+        self.ROM.Trainer_W(self.Trainer)
+        self.ROM.Mirroring_W(self.Mirroring)
+        self.ROM.FourScreen_W(self.FourScreen)
+        self.ROM.UsesSRAM_W(self.UsesSRAM)
 
-        self.info.MirrorXor_W(self.MirrorXor)
+        self.ROM.MirrorXor_W(self.MirrorXor)
 
-        self.info.PROM_SIZE_W(8,self.PROM_8K_SIZE)
-        self.info.PROM_SIZE_W(16,self.PROM_16K_SIZE)
-        self.info.PROM_SIZE_W(32,self.PROM_32K_SIZE)        
 
-        self.info.VROM_SIZE_W(1,self.VROM_1K_SIZE)        
-        self.info.VROM_SIZE_W(2,self.VROM_2K_SIZE)        
-        self.info.VROM_SIZE_W(4,self.VROM_4K_SIZE)        
-        self.info.VROM_SIZE_W(8,self.VROM_8K_SIZE)        
+        self.ROM.PROM_16K_SIZE = self.PROM_16K_SIZE
+       
+        self.ROM.VROM_8K_SIZE = self.VROM_8K_SIZE       
 
-        print self.info.PROM_SIZE_array
+        
         return NES
         
     def GetPROM_SIZE(self):
@@ -308,14 +310,7 @@ def draw_str(Tiles,i):
                 #image[point_y, point_x, 1] = digit.index(CPal[int(c)][3]) * 16 + digit.index(CPal[int(c)][4])
                 #image[point_y, point_x, 2] = digit.index(CPal[int(c)][5]) * 16 + digit.index(CPal[int(c)][6])
                 
-'''
-canvas.create_rectangle(pos_x + x*ratio ,
-                                        pos_y + y * ratio + 1 ,
-                                        pos_x + (x+1)*ratio,
-                                        pos_y + (y + 1) * ratio + 1,
-                                        outline = CPal[int(c)],
-                                        fill = CPal[int(c)])
-'''
+
 
 def Tiles_array(Tiles):
     Tiles_arr = []
@@ -327,47 +322,7 @@ def Tiles_array(Tiles):
     return np.array(Tiles_arr,np.uint8)
 
 
-'''
-#camera = cv2.VideoCapture(0)
-firstframe=None 
-tk = tkinter.Tk()                      # 创建窗口对象的背景色
-#创建一个宽为400，高为400，背景为蓝色色的画布
-ratio = 1
-s_w,s_h = 256,240
-canvas = tkinter.Canvas(tk,width=s_w*ratio,height=s_h*ratio,bg="black")
-canvas.pack()
-#tk.mainloop()
-#pal_array = pal_arr(CPal)
 
-#video_loop()
-
-#cv2.namedWindow("Image")'''
-'''
-while True:  
-    ret,frame = camera.read()  
-    if not ret:  
-        break  
-    gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)  
-    gray=cv2.GaussianBlur(gray,(21,21),0)  
-    if firstframe is None:  
-        firstframe=gray  
-        continue  
-      
-    frameDelta = cv2.absdiff(firstframe,gray)  
-    thresh = cv2.threshold(frameDelta, 25, 255, cv2.THRESH_BINARY)[1]  
-    thresh = cv2.dilate(thresh, None, iterations=2)  
-    # cnts= cv2.findContours(thresh.copy(),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)  
-      
-    x,y,w,h=cv2.boundingRect(thresh)  
-    frame=cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,255),2)  
-    cv2.imshow("frame", frame)  
-    cv2.imshow("Thresh", thresh)  
-    cv2.imshow("frame2", frameDelta)  
-    key = cv2.waitKey(1)&0xFF  
-      
-    if key == ord("q"):  
-        break
-'''
 def rndColor():
     return random.randint(64,255),random.randint(64,255),random.randint(64,255)
 
@@ -375,6 +330,7 @@ if __name__ == '__main__':
     #print NES.CPal
     #CPal = [[item >> 16, item >> 8 & 0xFF ,item & 0xFF] for item in NES.CPal]
     #print CPal
+    ROM_info = ROM()
     nesROM().LoadROM('roms//1942.nes')
     romt = ROM(np.zeros(0x40, np.uint8),np.zeros(0x40, np.uint8))
     print dir(romt)

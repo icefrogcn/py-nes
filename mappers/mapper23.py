@@ -1,13 +1,14 @@
 # -*- coding: UTF-8 -*-
 
+from numba import jit,jitclass
+from mapper import MAPPER_class_type
+
+#@jitclass([('cartridge',MAPPER_class_type)])
+class MAPPER(object):
 
 
-class MAPPER():
-
-
-    def __init__(self,MAPPER):
-        self.cartridge = MAPPER
-        self.Mapper = self.cartridge.Mapper
+    def __init__(self,cartridge):
+        self.cartridge = cartridge
 
         self.reg = [0] * 9
         self.irq_enable = 0
@@ -18,8 +19,10 @@ class MAPPER():
         
         self.addrmask = 0xFFFF
 
-        print 'init sccess MAPPER ',MAPPER.Mapper
 
+    @property
+    def Mapper(self):
+        return self.cartridge.ROM.Mapper
          
     def reset(self):
 
@@ -28,7 +31,7 @@ class MAPPER():
 
 	self.reg[8] = 0
 
-        self.cartridge.SetPROM_32K_Bank(0, 1, self.cartridge.PROM_8K_SIZE-2, self.cartridge.PROM_8K_SIZE-1 )
+        self.cartridge.SetPROM_32K_Bank(0, 1, self.cartridge.ROM.PROM_8K_SIZE-2, self.cartridge.ROM.PROM_8K_SIZE-1 )
 	self.cartridge.SetVROM_8K_Bank(0)
 	
         return 1
@@ -53,12 +56,12 @@ class MAPPER():
             if data != 0xFF:
                 
                 data &= 0x03
-                if data == 0:self.cartridge.Mirroring = 1
-                elif data == 1:self.cartridge.Mirroring = 2
-                elif data == 2:self.cartridge.Mirroring = 3 #VRAM_MIRROR4L
+                if data == 0:self.cartridge.Mirroring_W(1)
+                elif data == 1:self.cartridge.Mirroring_W(2)
+                elif data == 2:self.cartridge.Mirroring_W(3) #VRAM_MIRROR4L
                 else:self.cartridge.Mirroring = 4 #VRAM_MIRROR4H
                 #print "Mirroring",NES.Mirroring
-                self.cartridge.MirrorXor = ((self.cartridge.Mirroring + 1) % 3) * 0x400
+                self.cartridge.MirrorXor_W(((self.cartridge.Mirroring + 1) % 3) * 0x400)
                 
         elif addr == 0x9008:
             self.reg[8] = data & 0x02

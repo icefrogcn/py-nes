@@ -8,12 +8,13 @@ from numba import jit
 from nes import NES
 
 #APU
-
-class APU(NES):
+#class
+class APU(object):
     tones = [0] * 4
     volume = [0] * 4
     lastFrame = [0] * 4
-
+    Frames = 0
+    
     Sound = [0] * 0x16 #(0 To 0x15)# As Byte
     SoundCtrl = 0# As Byte
     
@@ -23,7 +24,9 @@ class APU(NES):
     vlengths = [5, 127, 10, 1, 19, 2, 40, 3, 80, 4, 30, 5, 7, 6, 13, 7, 6, 8, 12, 9, 24, 10, 48, 11, 96, 12, 36, 13, 8, 14, 16, 15] # As Long
 
     'DF: powers of 2'
-
+    pow2 = [2**i for i in range(31)]#*(31) #As Long
+    #pow2 = [2**i for i in range(32)]#*(31) #As Long
+    pow2 +=  [-2147483648]
     
     def __init__(self,debug = False):
         pass
@@ -66,6 +69,7 @@ class APU(NES):
         
     def updateSounds(self):
         #print "Playing"
+        self.Frames += 1
         if self.doSound :
             self.PlayRect(0)
             self.PlayRect(1)
@@ -76,7 +80,7 @@ class APU(NES):
 
     def playfun(self,ch,v):
         
-        if self.SoundCtrl and NES.pow2[ch] :
+        if self.SoundCtrl and self.pow2[ch] :
             volume = v #'Get volume'
             length = self.vlengths[self.Sound[ch * 4 + 3] // 8] #'Get length'
             if volume > 0 :
@@ -85,8 +89,9 @@ class APU(NES):
                     if self.ChannelWrite[ch] : #Ensures that a note doesn't replay unless memory written
                         #print 
                         self.ChannelWrite[ch] = False
-                        self.lastFrame[ch] = NES.Frames + length
-                        self.playTone(ch, getTone(frequency), volume)
+                        self.lastFrame[ch] = self.Frames + length
+                        Tone = getTone(frequency)
+                        self.playTone(ch, Tone, volume)
                     
                 else:
                     self.stopTone(ch)
@@ -141,9 +146,9 @@ class APU(NES):
             tone = 0 if tone < 0 else tone
             tone = 255 if tone > 255 else tone
             note_off = [0x80 + channel, tone, 0]
-            #print note_off
+
             self.midiout.send_message(note_off)
-            #midiOutShortMsg mdh, &H80 Or tone * 256 Or channel
+
 
 
 

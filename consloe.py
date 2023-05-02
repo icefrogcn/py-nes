@@ -6,29 +6,33 @@ import time
 import datetime
 import threading
 
-
+import rtmidi
 import keyboard
 import cv2
+from numba import njit
+import numpy as np
 
-#from numba import jit
 
 #自定义类
 from deco import *
 from wrfilemod import read_file_to_array
 
+import memory
 
 import rom
-from rom import nesROM as ROM
+from rom import nesROM
 from rom import get_Mapper_by_fn
 
 
 from cpu6502commands import init6502
 
 import cpu6502
-from cpu6502 import *
+from cpu6502 import cpu6502
+#from cpu import *
 
 from ppu import PPU
 from apu import APU
+from joypad import JOYPAD
 
 from vbfun import MemCopy
 
@@ -51,10 +55,10 @@ class CONSLOE(MMC, NES):
         CPURunning = 1
         FirstRead = 1
 
+        self.memory = memory.Memory()
         
         self.debug = debug
-        self.ROM = ROM()
-        self.PPU = PPU()
+        self.nesROM = nesROM()
         
         self.APU = APU()
         self.JOYPAD1 = JOYPAD(self)
@@ -64,33 +68,39 @@ class CONSLOE(MMC, NES):
         #self.CPURunning = cpu6502.CPURunning
 
     def LoadROM(self,filename):
-        self.NES = self.ROM.LoadROM(filename)
+        self.NES = self.nesROM.LoadROM(filename)
         
             
     def PowerON(self):
         NES.CPURunning = True
 
     def PowerOFF(self):
-        self.PPU.ShutDown()
+        self.ShutDown()
         self.APU.ShutDown()
 
         
     def StartingUp(self):
         init6502()
-        self.PPU.pPPUinit()
-        self.APU.pAPUinit()
+        print 'init PPU'
+        self.PPU = PPU(self.memory, self.nesROM.ROM)
+        self.PPU.pPPUinit(self.PPU_Running,self.PPU_render,self.PPU_debug)
 
-        self.CPU = cpu6502(self)
+        print 'init APU'
+        #self.APU.pAPUinit()
 
+        
+        
+        print 'init MAPPER'
         MAPPER = __import__('mappers')
-        cartridge = MAPPER.mapper.MAPPER(self.ROM.info,self.CPU.PRGRAM,self.PPU.VRAM)
-        self.PPU.cartridge = cartridge
+        cartridge = MAPPER.mapper.MAPPER(self.nesROM.ROM, self.memory)
+        #self.PPU.cartridge = cartridge
         try:
 
             
-            self.MAPPER = eval('MAPPER.mapper%d.MAPPER(cartridge)' %(self.ROM.Mapper))
-            self.CPU.MAPPER = self.MAPPER
-            
+            self.MAPPER = eval('MAPPER.mapper%d.MAPPER(cartridge)' %(self.nesROM.Mapper))
+            print 'init CPU'
+            self.CPU = cpu6502(self.memory, self.PPU, self.APU, self.MAPPER, self)
+        
             self.MAPPER.reset()
             
             self.CPU.debug = debug
@@ -103,7 +113,9 @@ class CONSLOE(MMC, NES):
             NES.newmapper_debug = 0
             
             self.MAPPER = cartridge
-            self.CPU.MAPPER = self.MAPPER
+            print 'init CPU'
+            self.CPU = cpu6502(self.memory, self.PPU, self.APU, self.MAPPER, self)
+        
             LoadNES = self.MapperChoose(NES.Mapper)
             print 'OLD MapperWrite'
                 
@@ -120,21 +132,53 @@ class CONSLOE(MMC, NES):
             return False
 
  
-        print "Successfully loaded %s" %self.ROM.filename
+        print "Successfully loaded %s" %self.nesROM.filename
         self.CPU.reset6502()
         #self.cpu6502.PPU.MirrorXor = self.ROM.MirrorXor # As Long 'Integer
 
         self.start = time.time()
         self.totalFrame = 0
 
-        self.PPU.ScrollToggle = 1
+        #self.PPU.ScrollToggle = 1
         self.PowerON()
-        self.PPU.ScreenShow()
+        self.ScreenShow()
+
+
+        self.midiout = rtmidi.MidiOut()
+        self.available_ports = self.midiout.get_ports()
+        print self.available_ports
+        self.APU.midiout = self.midiout
+        self.APU.available_ports = self.available_ports
+        #print self.midiout.getportcount()
+        
+        if self.available_ports:
+            self.midiout.open_port(0)
+        else:
+            self.midiout.open_virtual_port("My virtual output")
+
+        self.midiout.send_message([0xC0,80]) #'Square wave'
+        self.midiout.send_message([0xC1,80]) #'Square wave'
+        self.midiout.send_message([0xC2,87]) #Triangle wave
+        self.midiout.send_message([0xC3,127]) #Noise. Used gunshot. Poor but sometimes works.'
+
+
+        
         
         self.Running = 1
         while self.Running:
 
             self.CPU.exec6502()
+            if self.CPU.FrameFlag:
+                self.APU.updateSounds()
+                #print self.CPU.PRGRAM[2][0:0x100]
+                #print self.APU.Sound
+                #print self.CPU.Sound
+                
+                if self.PPU_Running and self.PPU_render:
+                    self.blitFrame()
+                self.ShowFPS()
+                self.CPU.FrameFlag = 0
+            
             if self.CPU.MapperWriteFlag:
                 self.MapperWrite(self.CPU.MapperWriteData)
            
@@ -143,6 +187,51 @@ class CONSLOE(MMC, NES):
 
         self.PowerOFF()
 
+    def blitFrame(self):
+        self.FrameBuffer = paintBuffer(self.PPU.FrameArray,self.PPU.Pal,self.PPU.Palettes)
+        if self.debug == False and self.PPU_render:
+            pass
+            self.blitScreen()
+            self.blitPal()
+        else:
+            self.blitPatternTable()
+            self.blitPal()
+            
+    def ScreenShow(self):
+        if self.PPU_Running == 0:
+            self.PPU_render = False
+            return
+        if self.PPU_Running and self.PPU_render and self.debug == False:
+            cv2.namedWindow('Main', cv2.WINDOW_NORMAL)
+            cv2.namedWindow('Pal', cv2.WINDOW_NORMAL)
+            
+        else:
+            cv2.namedWindow('Pal', cv2.WINDOW_NORMAL)
+            cv2.namedWindow('PatternTable0', cv2.WINDOW_NORMAL)
+            cv2.namedWindow('SC_TEST', cv2.WINDOW_NORMAL)
+        #cv2.namedWindow('PatternTable2', cv2.WINDOW_NORMAL)
+        #cv2.namedWindow('PatternTable3', cv2.WINDOW_NORMAL)
+    def ShutDown(self):
+        if self.PPU_render:
+            cv2.destroyAllWindows()
+    def blitScreen(self):
+        
+        cv2.imshow("Main", self.FrameBuffer[self.PPU.scY:self.PPU.scY + 240,self.PPU.scX:self.PPU.scX+256])
+        cv2.waitKey(1)
+
+    def blitPal(self):
+        cv2.imshow("Pal", np.array([[self.PPU.Pal[i] for i in self.PPU.Palettes]]))
+        cv2.waitKey(1)
+
+    def blitPatternTable(self):
+        cv2.line(self.FrameBuffer,(0,240),(768,240),(0,255,0),1) 
+        cv2.line(self.FrameBuffer,(0,480),(768,480),(0,255,0),1) 
+        cv2.line(self.FrameBuffer,(256,0),(256,720),(0,255,0),1) 
+        cv2.line(self.FrameBuffer,(512,0),(512,720),(0,255,0),1) 
+        cv2.rectangle(self.FrameBuffer, (self.PPU.scX,self.PPU.scY),(self.PPU.scX+255,self.PPU.scY + 240),(0,0,255),1)
+        cv2.imshow("PatternTable0", self.FrameBuffer)
+        cv2.waitKey(1)
+        
     def ShowFPS(self):
         if time.time() - self.start > 4:
                 FPS =  'FPS: %d'%(self.totalFrame >> 2) # 
@@ -245,13 +334,13 @@ class CONSLOE(MMC, NES):
     def Select8KVROM(self, val1):
         #val1 = self.MaskVROM(val1, NES.VROM_8K_SIZE)
         #self.cpu6502.PPU.VRAM[0:0x2000] = MMC.Select8KVROM(self, val1, self.ROM.VROM)
-        self.PPU.VRAM[0:0x2000] = self.ROM.VROM[val1 * 0x2000 : val1 * 0x2000 + 0x2000]
+        self.PPU.VRAM[0:0x2000] = self.nesROM.VROM[val1 * 0x2000 : val1 * 0x2000 + 0x2000]
 
 
     def Select1KVROM(self, val1, bank):
-        val1 = self.MaskVROM(val1, self.ROM.ChrCount * 8)
+        val1 = self.MaskVROM(val1, self.nesROM.ChrCount * 8)
         if NES.Mapper == 4:
-            MemCopy(self.PPU.VRAM, (MMC.MMC3_ChrAddr ^ (bank * 0x400)), self.ROM.VROM, (val1 * 0x400), 0x400)
+            MemCopy(self.PPU.VRAM, (MMC.MMC3_ChrAddr ^ (bank * 0x400)), self.nesROM.VROM, (val1 * 0x400), 0x400)
             
         elif NES.Mapper == 23:
             pass
@@ -265,10 +354,10 @@ class CONSLOE(MMC, NES):
     #'******只有需要时才切换******
     def SetupBanks(self):
 
-        self.reg8 = MaskBankAddress(self.reg8,self.ROM.PrgCount)
-        self.regA = MaskBankAddress(self.regA,self.ROM.PrgCount)
-        self.regC = MaskBankAddress(self.regC,self.ROM.PrgCount)
-        self.regE = MaskBankAddress(self.regE,self.ROM.PrgCount)
+        self.reg8 = MaskBankAddress(self.reg8,self.nesROM.PrgCount)
+        self.regA = MaskBankAddress(self.regA,self.nesROM.PrgCount)
+        self.regC = MaskBankAddress(self.regC,self.nesROM.PrgCount)
+        self.regE = MaskBankAddress(self.regE,self.nesROM.PrgCount)
         
         '''
         self.cpu6502.bank8 = np.array(self.PRGROM[self.reg8 * 0x2000: self.reg8 * 0x2000 + 0x2000], np.uint8)
@@ -277,19 +366,19 @@ class CONSLOE(MMC, NES):
         self.cpu6502.bankE = np.array(self.PRGROM[self.regE * 0x2000: self.regE * 0x2000 + 0x2000], np.uint8)
         '''
 
-        MemCopy(self.CPU.PRGRAM[4], 0, self.ROM.PROM, self.reg8 * 0x2000, 0x2000)
-        MemCopy(self.CPU.PRGRAM[5], 0, self.ROM.PROM, self.regA * 0x2000, 0x2000)
-        MemCopy(self.CPU.PRGRAM[6], 0, self.ROM.PROM, self.regC * 0x2000, 0x2000)
-        MemCopy(self.CPU.PRGRAM[7], 0, self.ROM.PROM, self.regE * 0x2000, 0x2000)
+        MemCopy(self.CPU.PRGRAM[4], 0, self.nesROM.PROM, self.reg8 * 0x2000, 0x2000)
+        MemCopy(self.CPU.PRGRAM[5], 0, self.nesROM.PROM, self.regA * 0x2000, 0x2000)
+        MemCopy(self.CPU.PRGRAM[6], 0, self.nesROM.PROM, self.regC * 0x2000, 0x2000)
+        MemCopy(self.CPU.PRGRAM[7], 0, self.nesROM.PROM, self.regE * 0x2000, 0x2000)
         #print len(self.CPU.bankE)
 
     
     
     #@deco
     def MaskBankAddress(self,bank):
-        if bank >= self.ROM.PrgCount * 2 :
+        if bank >= self.nesROM.PrgCount * 2 :
             i = 0xFF
-            while (bank & i) >= self.ROM.PrgCount * 2:
+            while (bank & i) >= self.nesROM.PrgCount * 2:
                 i = i // 2
             
             MaskBankAddress = (bank & i)
@@ -363,7 +452,7 @@ class CONSLOE(MMC, NES):
         elif Address == 0xE001:
             MMC.irq_enable = True
 
-@jit
+@njit
 def MaskBankAddress(bank, PrgCount):
         if bank >= PrgCount * 2 :
             i = 0xFF
@@ -374,7 +463,14 @@ def MaskBankAddress(bank, PrgCount):
         else:
             MaskBankAddress = bank
         return MaskBankAddress
-
+@njit
+def paintBuffer(FrameBuffer,Pal,Palettes):
+    [rows, cols] = FrameBuffer.shape
+    img = np.zeros((rows, cols,3),np.uint8)
+    for i in range(rows):
+        for j in range(cols):
+            img[i, j] = Pal[Palettes[FrameBuffer[i, j]]]
+    return img
     
 def show_rom_info(ROM):
     print "[ " , ROM.PrgCount , " ] 16kB ROM Bank(s)"
@@ -420,9 +516,9 @@ def run(debug = False):
         fc = CONSLOE(debug)
         #fc.debug = True
         fc.LoadROM(ROMS_DIR + ROMS[gn])
-        fc.PPU.Running = 1
-        fc.PPU.render = 1
-        fc.PPU.debug = debug
+        fc.PPU_Running = 1
+        fc.PPU_render = 1
+        fc.PPU_debug = debug
         fc.StartingUp()
         
 if __name__ == '__main__':

@@ -1,18 +1,18 @@
 # -*- coding: UTF-8 -*-
+from numba import jit,jitclass
+from mapper import MAPPER_class_type
 
+@jitclass([('cartridge',MAPPER_class_type)])
+class MAPPER(object):
 
+    def __init__(self,cartridge):
+        self.cartridge = cartridge
 
-class MAPPER():
-
-    def __init__(self,MAPPER):
-        self.cartridge = MAPPER
-        self.Mapper = self.cartridge.Mapper
-        print 'init sccess MAPPER ',self.cartridge.ROM_info[0]
-        
-
+    @property
+    def Mapper(self):
+        return self.cartridge.ROM.Mapper
     def reset(self):
-        print 'self.cartridge.PROM_8K_SIZE',self.cartridge.PROM_8K_SIZE
-        self.cartridge.SetPROM_32K_Bank(0, 1, self.cartridge.PROM_8K_SIZE - 2, self.cartridge.PROM_8K_SIZE - 1)
+        self.cartridge.SetPROM_32K_Bank(0, 1, self.cartridge.ROM.PROM_8K_SIZE - 2, self.cartridge.ROM.PROM_8K_SIZE - 1)
 
 	patch = 0
             
