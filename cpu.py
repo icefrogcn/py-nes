@@ -25,9 +25,11 @@ from cpu6502instructions import *
 
 import cpu6502addressmode as addressmode
 
+from deco import *
+from vbfun import MemCopy
          
 import memory
-
+from nes import NES
 
 from mmc import MMC
 
@@ -47,12 +49,26 @@ V_FLAG = 0x40	#	// 1: Overflow
 N_FLAG = 0x80	#	// 1: Negative
 
 
+@jitclass([('PC',uint16),('a',uint8),('X',uint8),('Y',uint8),('S',uint8),('p',uint16),('savepc',uint16),('saveflags',uint16),('clockticks6502',uint16)])
+class reg(object):
+    def __init__(self):
+        self.PC = 0
+        self.a = 0
+        self.X = 0
+        self.Y = 0
+        self.S = 0
+        self.p = 0
+        self.savepc = 0
+        self.saveflags = 0
+        self.clockticks6502  = 0
 
 #uint8_vector = nb.types.Array(dtype=uint8[:], ndim=1, layout="A")
 #uint16_vector = nb.types.Array(dtype=uint16[:], ndim=1, layout="C")
 
 @jitclass([('RAM',uint8[:,:]), \
-           ('PRGRAM',uint8[:,:])])
+           ('PRGRAM',uint8[:,:]), \
+           ('Sound',uint8[:]) \
+           ])
 class Memory(object):
     def __init__(self, memory = memory.Memory()):
         self.RAM = memory.RAM
@@ -113,7 +129,7 @@ class cpu6502(MMC):
     tilebased = True
     
 
-    def __init__(self, _consloe):
+    def __init__(self, memory, PPU, APU, MAPPER, _consloe):
         self.PC = np.uint16(0) #             16 bit 寄存器 其值为指令地址
         self.a = np.uint8(0) #                '累加器
         self.X = np.uint8(0) #                '寄存器索引
@@ -126,7 +142,7 @@ class cpu6502(MMC):
         self.opcode = np.uint8(0) # As Byte
 
         self.reg = reg()
-        self.RAM = Memory(_consloe.memory)
+        self.RAM = Memory(memory)
         self.PRGRAM = self.RAM.PRGRAM
         self.bank0 = self.PRGRAM[0]
         self.bank6 = self.PRGRAM[3]
@@ -135,7 +151,7 @@ class cpu6502(MMC):
         self.bankC = self.PRGRAM[6]
         self.bankE = self.PRGRAM[7]
         
-        
+        self.Sound = self.RAM.PRGRAM[2][0:0x100]
         
         self.debug = False
         self.MapperWriteFlag = 0
@@ -144,9 +160,10 @@ class cpu6502(MMC):
         self.FrameFlag = 0
 
         self.consloe = _consloe
-        self.PPU = _consloe.PPU
-        self.PPU_reg = self.PPU.reg
-        self.APU = _consloe.APU
+        self.PPU = PPU
+        self.PPU.reg = self.PPU.reg
+        self.APU = APU
+        self.MAPPER = MAPPER
         self.JOYPAD1 = _consloe.JOYPAD1
         self.JOYPAD2 = _consloe.JOYPAD2
         
@@ -366,7 +383,7 @@ class cpu6502(MMC):
         print "6502 reset:",self.status()
 
     def status(self):
-        return self.Frames,self.PC,self.clockticks6502,self.PPU_reg.PPUSTATUS,self.PPU.CurrentLine,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
+        return self.Frames,self.PC,self.clockticks6502,self.PPU.reg.PPUSTATUS,self.PPU.CurrentLine,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
 
     def log(self,*args):
         #print self.debug
@@ -407,14 +424,14 @@ class cpu6502(MMC):
 
                     
                 if self.MAPPER.Mapper == 4:
-                    if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.Control1):
+                    if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.reg.PPUCTRL):
                         print 'MMC3_HBlank'
-                        #self.irq6502()
+                        self.irq6502()
                         
                 if self.PPU.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
                     if self.PPU.CurrentLine == 240 :
-                        if self.PPU_reg.PPUCTRL & 0x80:
+                        if self.PPU.reg.PPUCTRL & 0x80:
                             self.nmi6502()
                            #realframes = realframes + 1
                     
@@ -423,19 +440,16 @@ class cpu6502(MMC):
                         
                 if self.PPU.CurrentLine == 262:
                     #self.log("FRAME:",self.status()) ###########################
-                    self.APU.updateSounds()
                     
                     
+                    if self.PPU.render:self.PPU.RenderFrame()
                     self.PPU.CurrentLine = 0
-
-                    if self.PPU.Running and self.PPU.render:self.PPU.blitFrame()
-        
-                    
+                    self.FrameFlag = 1
                     #self.PPU.Frames += 1
-                    #print NES.Frames
+
                     #self.PPU.Status = 0x0
                     self.PPU.reg.PPUSTATUS_W(0)
-                    self.consloe.ShowFPS()
+                    
                 else:
                     self.PPU.CurrentLine +=  1
                 
@@ -1079,6 +1093,7 @@ class cpu6502(MMC):
                 return self.PRGRAM[1, address & 0x0007]
 
         elif (address >=0x4000 and address <=0x4013) or address == 0x4015:
+            return self.Sound[address - 0x4000]
             return self.APU.Sound[address - 0x4000]
         
         elif address == 0x4016: #"Read JOY1"
@@ -1139,9 +1154,10 @@ class cpu6502(MMC):
             print "Write HARD bRK"
 
             
-    def WriteReg(self,Address,value):
-        addr = Address & 0xFF
+    def WriteReg(self,address,value):
+        addr = address & 0xFF
         if  addr <= 0x13 or addr == 0x15:
+            self.Sound[address - 0x4000] = value
             self.APU.Write(addr,value)
         elif addr == 0x14:
             #print 'DF: changed gameImage to bank0. This should work'

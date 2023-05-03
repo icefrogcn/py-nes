@@ -1,26 +1,35 @@
 # -*- coding: UTF-8 -*-
 
 import time
-import math
+import numpy as np
+import numba as nb
+from numba import jit,jitclass
+from numba import uint8,uint16,int32,float32
+from numba.typed import Dict
+from numba import types
 
-import keyboard
 #JOYPAD
-from nes import NES
+#from nes import NES
 
-BUTTON_PRESS = 0x41
-BUTTON_RELEASE = 0x40
-class JOYPAD(NES):
+spec = [('Joypad',uint8[:]),
+        ('Joypad_Count',uint8)]
+
+@jitclass(spec)
+class JOYPAD(object):
     
-    def __init__(self,consloe,debug = False):
-         self.consloe = consloe
-         self.Joypad = [0x40] * 0x8
+    def __init__(self,debug = False):
+         #self.consloe = consloe
+         self.Joypad = np.full(0x8,0x40,np.uint8)
          #self.Joypad = [0x00] * 0x8
          self.Joypad_Count = 0
-         self.padkey ={
-             'enter':3,         #St
-             '0':self.turnoff,
-             }
 
+    @property
+    def BUTTON_PRESS(self):
+        return 0x41
+    @property
+    def BUTTON_RELEASE(self):
+        return 0x40
+    
     def Read(self):
         #print self.Joypad_Count
         '''try:
@@ -29,41 +38,15 @@ class JOYPAD(NES):
             print "Invalid PPU Read - %s" %hex(addr)
             print (traceback.print_exc())
             return 0'''
-        if keyboard.is_pressed('b'):
-            #print "START"
-            self.Joypad[3] = BUTTON_PRESS
-        else:
-            pass
-            self.Joypad[3] = BUTTON_RELEASE
-
-        if keyboard.is_pressed('v'):
-            #print "SELECT"
-            self.Joypad[2] = BUTTON_PRESS
-        else:
-            pass
-            self.Joypad[2] = BUTTON_RELEASE
-
-        
-        self.Joypad[1] = BUTTON_PRESS if keyboard.is_pressed('j') else BUTTON_RELEASE
-        self.Joypad[0] = BUTTON_PRESS if keyboard.is_pressed('k') else BUTTON_RELEASE
-        
-        self.Joypad[4] = BUTTON_PRESS if keyboard.is_pressed('w') else BUTTON_RELEASE
-        self.Joypad[5] = BUTTON_PRESS if keyboard.is_pressed('s') else BUTTON_RELEASE
-        self.Joypad[6] = BUTTON_PRESS if keyboard.is_pressed('a') else BUTTON_RELEASE
-        self.Joypad[7] = BUTTON_PRESS if keyboard.is_pressed('d') else BUTTON_RELEASE
-
-
-        if keyboard.is_pressed('0'):
-            print "turnoff"
-            self.turnoff()
-
 
         joypad_info = self.Joypad[self.Joypad_Count]
         self.Joypad_Count = (self.Joypad_Count + 1) & 7
         return joypad_info
 
-    def turnoff(self):
-        self.consloe.Running = 0
+JOYPAD_type = nb.deferred_type()
+JOYPAD_type.define(JOYPAD.class_type.instance_type)
+
+
 if __name__ == '__main__':
     JOYPAD = JOYPAD()
 

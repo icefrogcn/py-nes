@@ -443,7 +443,9 @@ class cpu6502(MMC):
                     
                     
                     if self.PPU.render:self.PPU.RenderFrame()
+                    self.APU.updateSounds()
                     self.PPU.CurrentLine = 0
+
                     self.FrameFlag = 1
                     #self.PPU.Frames += 1
 

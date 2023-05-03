@@ -60,9 +60,10 @@ class CONSLOE(MMC, NES):
         self.debug = debug
         self.nesROM = nesROM()
         
-        self.APU = APU()
-        self.JOYPAD1 = JOYPAD(self)
-        self.JOYPAD2 = JOYPAD(self)
+        print 'init APU'
+        self.APU = APU(self.memory)
+        self.JOYPAD1 = JOYPAD()
+        self.JOYPAD2 = JOYPAD()
 
                
         #self.CPURunning = cpu6502.CPURunning
@@ -76,7 +77,7 @@ class CONSLOE(MMC, NES):
 
     def PowerOFF(self):
         self.ShutDown()
-        self.APU.ShutDown()
+        #self.APU.ShutDown()
 
         
     def StartingUp(self):
@@ -85,7 +86,6 @@ class CONSLOE(MMC, NES):
         self.PPU = PPU(self.memory, self.nesROM.ROM)
         self.PPU.pPPUinit(self.PPU_Running,self.PPU_render,self.PPU_debug)
 
-        print 'init APU'
         #self.APU.pAPUinit()
 
         
@@ -147,8 +147,8 @@ class CONSLOE(MMC, NES):
         self.midiout = rtmidi.MidiOut()
         self.available_ports = self.midiout.get_ports()
         print self.available_ports
-        self.APU.midiout = self.midiout
-        self.APU.available_ports = self.available_ports
+        #self.APU.midiout = self.midiout
+        #self.APU.available_ports = self.available_ports
         #print self.midiout.getportcount()
         
         if self.available_ports:
@@ -165,11 +165,12 @@ class CONSLOE(MMC, NES):
         
         
         self.Running = 1
+        print 'First runing jitclass need complies about 10-60 seconds...ooh...wait...'
         while self.Running:
 
             self.CPU.exec6502()
             if self.CPU.FrameFlag:
-                self.APU.updateSounds()
+                self.playSounds()
                 #print self.CPU.PRGRAM[2][0:0x100]
                 #print self.APU.Sound
                 #print self.CPU.Sound
@@ -178,6 +179,25 @@ class CONSLOE(MMC, NES):
                     self.blitFrame()
                 self.ShowFPS()
                 self.CPU.FrameFlag = 0
+
+                if keyboard.is_pressed('0'):
+                    print "turnoff"
+                    self.Running = 0
+
+                
+                self.JOYPAD1.Joypad[2] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('v') else self.JOYPAD1.BUTTON_RELEASE
+                self.JOYPAD1.Joypad[3] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('b') else self.JOYPAD1.BUTTON_RELEASE
+                
+                self.JOYPAD1.Joypad[1] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('j') else self.JOYPAD1.BUTTON_RELEASE
+                self.JOYPAD1.Joypad[0] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('k') else self.JOYPAD1.BUTTON_RELEASE
+                
+                self.JOYPAD1.Joypad[4] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('w') else self.JOYPAD1.BUTTON_RELEASE
+                self.JOYPAD1.Joypad[5] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('s') else self.JOYPAD1.BUTTON_RELEASE
+                self.JOYPAD1.Joypad[6] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('a') else self.JOYPAD1.BUTTON_RELEASE
+                self.JOYPAD1.Joypad[7] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('d') else self.JOYPAD1.BUTTON_RELEASE
+
+
+                
             
             if self.CPU.MapperWriteFlag:
                 self.MapperWrite(self.CPU.MapperWriteData)
@@ -187,6 +207,30 @@ class CONSLOE(MMC, NES):
 
         self.PowerOFF()
 
+    def playSounds(self):
+        #print "Playing"
+        #self.APU.Frames += 1
+        if self.available_ports and self.APU.doSound :
+            for ch in range(4):
+                
+                if self.APU.chk_SoundCtrl(ch):
+                    #self.midiout.send_message([self.APU.SoundChannel[ch],self.APU.tones[ch],self.APU.volume[ch]])
+                    if self.APU.SoundChannel[ch]:
+                        #print [self.APU.SoundChannel[ch],self.APU.tones[ch],self.APU.volume[ch]]
+                        self.midiout.send_message([0x90 + ch,self.APU.tones[ch],self.APU.volume[ch]])
+                    else:
+                        self.midiout.send_message([0x80 + ch,self.APU.tones[ch],self.APU.volume[ch]])
+                else:
+                    self.midiout.send_message([0x80 + ch,self.APU.tones[ch],self.APU.volume[ch]])
+                    
+                if self.APU.Frames >= self.APU.lastFrame[ch]:
+                    self.midiout.send_message([0x80 + ch,self.APU.tones[ch],self.APU.volume[ch]])
+                    
+            #self.midiout.send_message(self.APU.SoundBuffer[1])
+            #self.midiout.send_message(self.APU.SoundBuffer[2])
+            #self.midiout.send_message(self.APU.SoundBuffer[3])
+            
+            
     def blitFrame(self):
         self.FrameBuffer = paintBuffer(self.PPU.FrameArray,self.PPU.Pal,self.PPU.Palettes)
         if self.debug == False and self.PPU_render:
@@ -214,6 +258,9 @@ class CONSLOE(MMC, NES):
     def ShutDown(self):
         if self.PPU_render:
             cv2.destroyAllWindows()
+        if self.available_ports:
+            self.midiout.close_port()
+            
     def blitScreen(self):
         
         cv2.imshow("Main", self.FrameBuffer[self.PPU.scY:self.PPU.scY + 240,self.PPU.scX:self.PPU.scX+256])

@@ -3,59 +3,100 @@
 import time
 import rtmidi
 import math
-from numba import jit
+import numpy as np
+import numba as nb
+from numba import jit,jitclass
+from numba import uint8,uint16,int32,float32
+from numba.typed import Dict
+from numba import types
 
 from nes import NES
+from memory import Memory
 
 #APU
-#class
+spec = [('tones',float32[:]),
+        ('volume',uint16[:]),
+        ('v',uint16[:]),
+        ('lastFrame',uint16[:]),
+        ('ChannelWrite',uint16[:]),
+        ('SoundChannel',uint8[:]),
+        ('SoundOn',uint8[:]),
+        #('SoundBuffer', np.dtype([('f0', 'u1'), ('f1', 'f4'), ('f2', 'u1')])[:]),
+        ('Frames',uint16),
+        ('Sound',uint8[:]),
+        ('doSound',uint8),
+        ('vlengths',uint8[:]),
+        ('pow2',int32[:])]
+@jitclass(spec)
 class APU(object):
-    tones = [0] * 4
-    volume = [0] * 4
-    lastFrame = [0] * 4
-    Frames = 0
-    
-    Sound = [0] * 0x16 #(0 To 0x15)# As Byte
-    SoundCtrl = 0# As Byte
-    
-    ChannelWrite = [False] * 4 #As Boolean
-    doSound = True
 
-    vlengths = [5, 127, 10, 1, 19, 2, 40, 3, 80, 4, 30, 5, 7, 6, 13, 7, 6, 8, 12, 9, 24, 10, 48, 11, 96, 12, 36, 13, 8, 14, 16, 15] # As Long
+    def __init__(self,memory = Memory(),debug = False):
+        self.tones = np.zeros(0x4,np.float32)#[0] * 4
+        self.volume = np.zeros(0x4,np.uint16)#[0] * 4
+        self.v = np.zeros(0x4,np.uint16)#[0] * 4
+        #self.Channel = np.zeros(0x4,np.uint16)#[0] * 4
+        self.lastFrame = np.zeros(0x4,np.uint16)#[0] * 4
+        self.ChannelWrite = np.zeros(0x4,np.uint16)#[0] * 4
 
-    'DF: powers of 2'
-    pow2 = [2**i for i in range(31)]#*(31) #As Long
-    #pow2 = [2**i for i in range(32)]#*(31) #As Long
-    pow2 +=  [-2147483648]
-    
-    def __init__(self,debug = False):
-        pass
+        
+        self.SoundChannel = np.zeros(0x4,np.uint8)#np.zeros((0x4),dtype = "u1, f4, u1")
+        self.SoundOn = np.zeros(0x4,np.uint8)#np.zeros((0x4),dtype = "u1, f4, u1")
+        #self.SoundBuffer = np.zeros(0x4,np.dtype([('f0', 'u1'), ('f1', 'f4'), ('f2', 'u1')]))
+        #self.tones = [0] * 4
+        #self.volume = [0] * 4
+        #self.lastFrame = [0] * 4
+        #self.ChannelWrite = [0] * 4
 
-    def pAPUinit(self):
-        'Lookup table used by nester.'
+        self.Frames = 0
+
+        #self.RAM = memory.RAM
+        self.Sound = memory.RAM[2][0:0x100]
+        #self.Sound = [0] * 0x16 #(0 To 0x15)
+        #self.SoundCtrl = self.Sound[0x15]
+        
+        self.doSound = 1
+
+        self.vlengths = np.array([5, 127, 10, 1, 19, 2, 40, 3, 80, 4, 30, 5, 7, 6, 13, 7, 6, 8, 12, 9, 24, 10, 48, 11, 96, 12, 36, 13, 8, 14, 16, 15],np.uint8) # As Long
+
+        'DF: powers of 2'
+        self.pow2 = np.array([2**i for i in range(31)] + [-2147483648],np.int32) #*(31) #As Long
+        #pow2 = [2**i for i in range(32)]#*(31) #As Long
+        #self.pow2 +=  [-2147483648] #       pass
+
+    #def pAPUinit(self):
+    #    'Lookup table used by nester.'
         #fillArray vlengths, 
-        self.midiout = rtmidi.MidiOut()
-        self.available_ports = self.midiout.get_ports()
-        print self.available_ports
+    #    self.midiout = rtmidi.MidiOut()
+    #    self.available_ports = self.midiout.get_ports()
+    #    print self.available_ports
         #print self.midiout.getportcount()
         
-        if self.available_ports:
-            self.midiout.open_port(0)
-        else:
-            self.midiout.open_virtual_port("My virtual output")
+    #    if self.available_ports:
+    #        self.midiout.open_port(0)
+    #    else:
+    #        self.midiout.open_virtual_port("My virtual output")
 
-        self.midiout.send_message([0xC0,80]) #'Square wave'
-        self.midiout.send_message([0xC1,80]) #'Square wave'
-        self.midiout.send_message([0xC2,87]) #Triangle wave
-        self.midiout.send_message([0xC3,127]) #Noise. Used gunshot. Poor but sometimes works.'
+    #    self.midiout.send_message([0xC0,80]) #'Square wave'
+    #    self.midiout.send_message([0xC1,80]) #'Square wave'
+    #    self.midiout.send_message([0xC2,87]) #Triangle wave
+    #    self.midiout.send_message([0xC3,127]) #Noise. Used gunshot. Poor but sometimes works.'
 
+    @property
+    def SoundCtrl(self):
+        return self.Sound[0x15]
+    def SoundCtrl_W(self,value):
+        self.Sound[0x15] = value
+    #@property
+    def chk_SoundCtrl(self,ch):
+        return self.SoundCtrl and self.pow2[ch]
+    
     def ShutDown(self):
         if self.available_ports:
             self.midiout.close_port()
 
     def Write(self,Address,value):
         if Address == 0x15:
-            self.SoundCtrl = value
+            self.SoundCtrl_W(value)
         else:
             self.Sound[Address] = value
             n = Address >> 2
@@ -81,17 +122,18 @@ class APU(object):
     def playfun(self,ch,v):
         
         if self.SoundCtrl and self.pow2[ch] :
-            volume = v #'Get volume'
+            #volume = v #'Get volume'
             length = self.vlengths[self.Sound[ch * 4 + 3] // 8] #'Get length'
-            if volume > 0 :
+            if v > 0 :
                 frequency = ((self.Sound[ch * 4 + 2] & 15) * 128) if v == 5 else (self.Sound[ch * 4 + 2] + (self.Sound[ch * 4 + 3] & 7) * 256)  #'Get frequency'
                 if frequency > 1 :
                     if self.ChannelWrite[ch] : #Ensures that a note doesn't replay unless memory written
                         #print 
-                        self.ChannelWrite[ch] = False
+                        self.ChannelWrite[ch] = 0
                         self.lastFrame[ch] = self.Frames + length
-                        Tone = getTone(frequency)
-                        self.playTone(ch, Tone, volume)
+                        #Tone = self.getTone(frequency)
+                        #print frequency,Tone
+                        self.playTone(ch, self.getTone(frequency), v)
                     
                 else:
                     self.stopTone(ch)
@@ -100,7 +142,7 @@ class APU(object):
                 self.stopTone(ch)
             
         else:
-            self.ChannelWrite[ch] = True
+            self.ChannelWrite[ch] = 1
             self.stopTone(ch)
 
         if self.Frames >= self.lastFrame[ch]:
@@ -123,31 +165,35 @@ class APU(object):
 
     
     def playTone(self,channel, tone, v):
-        if tone <> self.tones[channel] or v < self.volume[channel] - 3 or v > self.volume[channel] or v == 0 :
+        if tone <> self.tones[channel] or v < self.v[channel] - 3 or v > self.v[channel] or v == 0 :
             self.stopTone(channel)
             if self.doSound and tone <> 0 and v > 0 :
-                self.volume[channel] = v
+                self.v[channel] = v
+                self.volume[channel] = v * 127 / 15
                 self.tones[channel] = tone
-                #'bgBuffer(0) = v'
-                #'bgBuffer(1) = l'
-                self.ToneOn(channel, tone, v * 127 / 15)
+                self.ToneOn(channel, tone, self.volume[channel])
 
     def ToneOn(self, channel, tone, volume):
-        if self.available_ports :
+        #if self.available_ports :
             tone = 0 if tone < 0 else tone
             tone = 255 if tone > 255 else tone
-            note_on = [0x90 + channel, tone, volume] # channel 1, middle C, velocity 112
-            #print note_on
-            self.midiout.send_message(note_on)
+            #note_on = np.array([0x90 + channel, tone, volume],) # channel 1, middle C, velocity 112
+            self.tones[channel] = tone
+            self.SoundOn[channel] = 0x90 + channel
+            self.SoundChannel[channel] = 1
+            #self.midiout.send_message(note_on)
             #'midiOutShortMsg mdh, &H90 Or tone * 256 Or channel Or volume * 65536'
 
     def ToneOff(self, channel,tone):
-        if self.available_ports :
+        #if self.available_ports :
             tone = 0 if tone < 0 else tone
             tone = 255 if tone > 255 else tone
-            note_off = [0x80 + channel, tone, 0]
-
-            self.midiout.send_message(note_off)
+            #note_off = [0x80 + channel, tone, 0]
+            #print type(note_off),note_off
+            self.tones[channel] = tone
+            #self.SoundOff[channel] = 0x80 + channel
+            self.SoundChannel[channel] = 0
+            #self.midiout.send_message(note_off)
 
 
 
@@ -156,7 +202,23 @@ class APU(object):
         if self.tones[channel] <> 0:
             self.ToneOff(channel,self.tones[channel])
             self.tones[channel] = 0
+            self.v[channel] = 0
             self.volume[channel] = 0
+
+    def getTone(self, freq): #As Long
+        if freq <= 0:
+            return 0
+        
+        freq = 65536 / freq
+        t = math.log(freq / 8.176) / math.log(1.059463)
+        
+        t = 1 if t < 1 else t
+        t = 127 if t > 127 else t
+
+        return t
+
+    def playtest(self,mididev):
+        pass
 
 #'Calculates a midi tone given an nes frequency.
 #'Frequency passed is actual interval in 1/65536's of a second (I hope)
@@ -173,6 +235,8 @@ def getTone(freq): #As Long
 
         return t
 
+APU_type = nb.deferred_type()
+APU_type.define(APU.class_type.instance_type)
 
 '''
 MIDI instrument list. Ripped off some website I've forgotten which
