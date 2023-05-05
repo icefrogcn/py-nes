@@ -13,12 +13,14 @@ from numba import types
 from nes import NES
 from memory import Memory
 
+#ChannelWrite = np.zeros(0x4,np.uint8)
+
 #APU
 spec = [('tones',float32[:]),
         ('volume',uint16[:]),
         ('v',uint16[:]),
         ('lastFrame',uint16[:]),
-        ('ChannelWrite',uint16[:]),
+        ('ChannelWrite',uint8[:]),
         ('SoundChannel',uint8[:]),
         ('SoundOn',uint8[:]),
         #('SoundBuffer', np.dtype([('f0', 'u1'), ('f1', 'f4'), ('f2', 'u1')])[:]),
@@ -27,16 +29,17 @@ spec = [('tones',float32[:]),
         ('doSound',uint8),
         ('vlengths',uint8[:]),
         ('pow2',int32[:])]
+print('loading APU CLASS')
 @jitclass(spec)
 class APU(object):
 
-    def __init__(self,memory = Memory(),debug = False):
+    def __init__(self,memory = Memory(), debug = False):
         self.tones = np.zeros(0x4,np.float32)#[0] * 4
         self.volume = np.zeros(0x4,np.uint16)#[0] * 4
         self.v = np.zeros(0x4,np.uint16)#[0] * 4
         #self.Channel = np.zeros(0x4,np.uint16)#[0] * 4
         self.lastFrame = np.zeros(0x4,np.uint16)#[0] * 4
-        self.ChannelWrite = np.zeros(0x4,np.uint16)#[0] * 4
+        self.ChannelWrite = np.zeros(0x4,np.uint8)#[0] * 4
 
         
         self.SoundChannel = np.zeros(0x4,np.uint8)#np.zeros((0x4),dtype = "u1, f4, u1")
@@ -101,16 +104,23 @@ class APU(object):
             self.Sound[Address] = value
             n = Address >> 2
             if n < 4 :
-                self.ChannelWrite[n] = True
+                self.ChannelWrite[n] = 1
+                self.SoundChannel[n] = 1
+            
                 
     def ExWrite(self, addr, data):
         if addr == 0x0:
             pass
-            
+    def SoundChannel_ZERO(self,ch):
+        self.SoundChannel[ch] = 0
+    def SoundChannel_ONE(self,ch):
+        self.SoundChannel[ch] = 1
         
     def updateSounds(self):
         #print "Playing"
         self.Frames += 1
+        #print self.Sound[0:0x16]
+        #print self.ChannelWrite
         if self.doSound :
             self.PlayRect(0)
             self.PlayRect(1)
@@ -172,15 +182,16 @@ class APU(object):
                 self.volume[channel] = v * 127 / 15
                 self.tones[channel] = tone
                 self.ToneOn(channel, tone, self.volume[channel])
+        #else:
+            #self.SoundChannel[channel] = 0
 
     def ToneOn(self, channel, tone, volume):
         #if self.available_ports :
             tone = 0 if tone < 0 else tone
             tone = 255 if tone > 255 else tone
-            #note_on = np.array([0x90 + channel, tone, volume],) # channel 1, middle C, velocity 112
+            #note_on = [0x90 + channel, tone, volume] # channel 1, middle C, velocity 112
             self.tones[channel] = tone
-            self.SoundOn[channel] = 0x90 + channel
-            self.SoundChannel[channel] = 1
+            #self.SoundOn[channel] = 0x90 + channel
             #self.midiout.send_message(note_on)
             #'midiOutShortMsg mdh, &H90 Or tone * 256 Or channel Or volume * 65536'
 
@@ -192,7 +203,6 @@ class APU(object):
             #print type(note_off),note_off
             self.tones[channel] = tone
             #self.SoundOff[channel] = 0x80 + channel
-            self.SoundChannel[channel] = 0
             #self.midiout.send_message(note_off)
 
 

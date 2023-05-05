@@ -9,6 +9,8 @@ import numpy as np
 import numba as nb
 
 from rom import ROM,ROM_class_type
+from memory import Memory
+
 __all__ = ['MAPPER']
 #MAPPER
 
@@ -22,7 +24,7 @@ __all__ = ['MAPPER']
            ])
 class MAPPER(object):
     
-    def __init__(self, ROM, memory):
+    def __init__(self, ROM = ROM(), memory = Memory()):
 
         self.ROM = ROM
 
@@ -126,7 +128,7 @@ MAPPER_class_type = nb.deferred_type()
 MAPPER_class_type.define(MAPPER.class_type.instance_type)
 
 if __name__ == '__main__':
-    pass
+    MAPPER = MAPPER()
 
 
 

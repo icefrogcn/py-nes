@@ -26,81 +26,107 @@ ADR_ZPX = 12
 ADR_ZPY = 13
 
 
-
-' Opcodes'
-INS_ADC = 0
-INS_AND = 1
-INS_ASL = 2
-INS_ASLA = 3
-INS_BCC = 4
-INS_BCS = 5
-INS_BEQ = 6
-INS_BIT = 7
-INS_BMI = 8
-INS_BNE = 9
-INS_BPL = 10
-INS_BRK = 11
-INS_BVC = 12
-INS_BVS = 13
-INS_CLC = 14
-INS_CLD = 15
-INS_CLI = 16
-INS_CLV = 17
-INS_CMP = 18
-INS_CPX = 19
-INS_CPY = 20
-INS_DEC = 21
-INS_DEA = 22
-INS_DEX = 23
-INS_DEY = 24
-INS_EOR = 25
-INS_INC = 26
-INS_INX = 27
-INS_INY = 28
-INS_JMP = 29
-INS_JSR = 30
-INS_LDA = 31
-INS_LDX = 32
-INS_LDY = 33
-INS_LSR = 34
-INS_LSRA = 35
-INS_NOP = 36
-INS_ORA = 37
-INS_PHA = 38
-INS_PHP = 39
-INS_PLA = 40
-INS_PLP = 41
-INS_ROL = 42
-INS_ROLA = 43
-INS_ROR = 44
-INS_RORA = 45
-INS_RTI = 46
-INS_RTS = 47
-INS_SBC = 48
-INS_SEC = 49
-INS_SED = 50
-INS_SEI = 51
-INS_STA = 52
-INS_STX = 53
-INS_STY = 54
-INS_TAX = 55
-INS_TAY = 56
-INS_TSX = 57
-INS_TXA = 58
-INS_TXS = 59
-INS_TYA = 60
-INS_BRA = 61
-INS_INA = 62
-INS_PHX = 63
-INS_PLX = 64
-INS_PHY = 65
-INS_PLY = 66
-Ticks = np.zeros(0x100,np.uint8)#[0] * 0x100 # As Byte
-addrmode = np.zeros(0x100,np.uint8)#[0] * 0x100 # As Byte
-instruction = np.zeros(0x100,np.uint8)#[0] * 0x100 # As Byte
-#Ticks = [0] * 0x100 # As Byte
-#addrmode = [0] * 0x100 # As Byte
-#instruction = [0] * 0x100 # As Byte
+class OPCODES(object):
+      
+      ' Opcodes'
+      @property
+      def INS_ADC(self):
+            return 0
+      @property
+      def INS_AND = 1
+      @property
+      def INS_ASL = 2
+      @property
+      def INS_ASLA = 3
+      @property
+      def INS_BCC = 4
+      @property
+      def INS_BCS = 5
+      @property
+      def INS_BEQ = 6
+      @property
+      def INS_BIT = 7
+      @property
+      def INS_BMI = 8
+      @property
+      def INS_BNE = 9
+      @property
+      def INS_BPL = 10
+      @property
+      def INS_BRK = 11
+      @property
+      def INS_BVC = 12
+      @property
+      def INS_BVS = 13
+      @property
+      def INS_CLC = 14
+      @property
+      def INS_CLD = 15
+      @property
+      def INS_CLI = 16
+      @property
+      def INS_CLV = 17
+      @property
+      def INS_CMP = 18
+      @property
+      def INS_CPX = 19
+      @property
+      def INS_CPY = 20
+      @property
+      def INS_DEC = 21
+      @property
+      def INS_DEA = 22
+      @property
+      def INS_DEX = 23
+      INS_DEY = 24
+      INS_EOR = 25
+      INS_INC = 26
+      INS_INX = 27
+      INS_INY = 28
+      INS_JMP = 29
+      INS_JSR = 30
+      INS_LDA = 31
+      INS_LDX = 32
+      INS_LDY = 33
+      INS_LSR = 34
+      INS_LSRA = 35
+      INS_NOP = 36
+      INS_ORA = 37
+      INS_PHA = 38
+      INS_PHP = 39
+      INS_PLA = 40
+      INS_PLP = 41
+      INS_ROL = 42
+      INS_ROLA = 43
+      INS_ROR = 44
+      INS_RORA = 45
+      INS_RTI = 46
+      INS_RTS = 47
+      INS_SBC = 48
+      INS_SEC = 49
+      INS_SED = 50
+      INS_SEI = 51
+      INS_STA = 52
+      INS_STX = 53
+      INS_STY = 54
+      INS_TAX = 55
+      INS_TAY = 56
+      INS_TSX = 57
+      INS_TXA = 58
+      INS_TXS = 59
+      INS_TYA = 60
+      INS_BRA = 61
+      INS_INA = 62
+      INS_PHX = 63
+      INS_PLX = 64
+      INS_PHY = 65
+      INS_PLY = 66
+#Ticks = np.zeros(0x100,np.uint8)#[0] * 0x100 # As Byte
+#addrmode = np.zeros(0x100,np.uint8)#[0] * 0x100 # As Byte
+#instruction = np.zeros(0x100,np.uint8)#[0] * 0x100 # As Byte
+Ticks = [0] * 0x100 # As Byte
+addrmode = [0] * 0x100 # As Byte
+instruction = [0] * 0x100 # As Byte
 
 #@jit
 def init6502():
@@ -396,34 +422,7 @@ if __name__ == '__main__':
       init6502()
       #print Ticks
 
-      commands = commands(Ticks, instruction, addrmode)
-      t = TicksC(Ticks)
-      tt(Ticks)
-    
-      start = time.clock()
-      for i in range(10000000):
-            aa = Ticks[0x00]
-      print time.clock() - start
 
-      start = time.clock()
-      for i in range(10000000):
-            aa = Ticks[0xFF]
-      print time.clock() - start
-
-      
-      start = time.clock()
-      for i in range(10000000):
-            aa = instruction[0xFF]
-      print time.clock() - start
-
-
-
-      start = time.clock()
-      for i in range(10000000):
-            aa = addrmode[0xFF]
-      print time.clock() - start
-      #print aa
-      start = time.clock()
 
 
 

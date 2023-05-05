@@ -29,6 +29,9 @@ class JOYPAD(object):
     @property
     def BUTTON_RELEASE(self):
         return 0x40
+
+    def Joypad_Count_ZERO(self):
+        self.Joypad_Count = 0
     
     def Read(self):
         #print self.Joypad_Count

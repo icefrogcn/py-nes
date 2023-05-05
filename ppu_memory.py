@@ -12,7 +12,7 @@ from numba import types
 
 from memory import Memory,memory_type
 
-
+print('loading PPU MEMORY INFO CLASS')
 @jitclass([('memory',memory_type), \
            ('PRGRAM',uint8[:,:]), \
            ('VRAM',uint8[:]), \

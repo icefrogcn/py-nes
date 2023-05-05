@@ -16,7 +16,7 @@ from rom import ROM,ROM_class_type
 
 #PPU REGISTER
 
-
+print('loading PPU REGISTER INFO CLASS')
 @jitclass([('ver',uint8)])
 class PPUBIT(object): 
     def __init__(self):
@@ -97,10 +97,8 @@ class PPUBIT(object):
 PPU_bit_type = nb.deferred_type()
 PPU_bit_type.define(PPUBIT.class_type.instance_type)
 
-#data_type = nb.deferred_type()
 
-#data_type.define(nb.typeof(nb.typed.Dict.empty(key_type=nb.int64, value_type=uint8)))
-
+print('loading PPU REGISTER CLASS')
 @jitclass([('bit',PPU_bit_type), \
            ('memory',PPU_memory_type), \
            ('reg',uint16[:]), \
@@ -130,6 +128,8 @@ class PPUREG(object):
             return self.OAMDATA
         elif address == 0x2007:
             return self.PPUDATA
+        else:
+            return 0xFF
         
     def write(self,address,value):
         self.reg[8] = value
@@ -312,18 +312,35 @@ class PPU_T(object):
                 temp += i
             return temp
 
-@jitclass([('temp',uint8[:])])
+
+
+
+dict_type = nb.deferred_type()
+
+dict_type.define(nb.typeof(nb.typed.Dict.empty(key_type=uint8, value_type=uint8)))
+
+
+#dd = 
+GLOBAL_ = 123
+#@jitclass([('dict',dict_type)])
 class jit_class_test(object):
     def __init__(self):
-        self.temp = np.ones(10000000,np.uint8)
+        self.dict = nb.typed.Dict.empty(key_type=uint8, value_type=uint8)
         #self.temp += 1
     
     @property
     def test(self):
+        return self.dict
         temp = 0
         for i in self.temp:
             temp += i
         return temp
+
+    def test2(self,value = 0):
+        if value == GLOBAL_:
+            return 1
+        else:
+            return 0
 
 
 class class_test(object):
@@ -339,16 +356,18 @@ class class_test(object):
         return temp
          
 if __name__ == '__main__':
+    pass
+    dd = jit_class_test()
     #print PPUBIT()
     #print PPUREG()
-    t1 = jit_class_test()
-    t2 = class_test()
-    start = time.time()
-    print t1.test
-    print time.time() - start
-    start = time.time()
-    print t2.test
-    print time.time() - start
+    #t1 = jit_class_test()
+    #t2 = class_test()
+    #start = time.time()
+    #print t1.test
+    #print time.time() - start
+    #start = time.time()
+    #print t2.test
+    #print time.time() - start
    #reg.PPUCTRL_W(1)
     #print reg.PPUCTRL,reg.Palettes
     

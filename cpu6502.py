@@ -33,10 +33,10 @@ from nes import NES
 
 from mmc import MMC
 
-from apu import APU
-from ppu import PPU
-from joypad import JOYPAD
-
+from apu import APU,APU_type
+from ppu import PPU,PPU_type
+from joypad import JOYPAD,JOYPAD_type
+from mappers.mapper import MAPPER,MAPPER_class_type
 
 
 C_FLAG = 0x01	#	// 1: Carry
@@ -49,22 +49,7 @@ V_FLAG = 0x40	#	// 1: Overflow
 N_FLAG = 0x80	#	// 1: Negative
 
 
-@jitclass([('PC',uint16),('a',uint8),('X',uint8),('Y',uint8),('S',uint8),('p',uint16),('savepc',uint16),('saveflags',uint16),('clockticks6502',uint16)])
-class reg(object):
-    def __init__(self):
-        self.PC = 0
-        self.a = 0
-        self.X = 0
-        self.Y = 0
-        self.S = 0
-        self.p = 0
-        self.savepc = 0
-        self.saveflags = 0
-        self.clockticks6502  = 0
-
-#uint8_vector = nb.types.Array(dtype=uint8[:], ndim=1, layout="A")
-#uint16_vector = nb.types.Array(dtype=uint16[:], ndim=1, layout="C")
-
+print('loading CPU MEMORY CLASS')
 @jitclass([('RAM',uint8[:,:]), \
            ('PRGRAM',uint8[:,:]), \
            ('Sound',uint8[:]) \
@@ -85,17 +70,51 @@ class Memory(object):
         value = 0
         if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
             return self.PRGRAM[0, address & 0x7FF]
-        elif bank > 0x03:
+        elif bank > 0x03:                       # Address >=0x8000 and Address <=0xFFFF
             return self.PRGRAM[bank, address & 0x1FFF]
 
     def write(self,address):
         pass
-        
 
-class cpu6502(MMC):
-    
-    AddressMask =0 #Long 'Integer
+CPU_Memory_class_type = nb.deferred_type()
+CPU_Memory_class_type.define(Memory.class_type.instance_type)
 
+
+cpu_spec = [('PC',uint16),
+            ('a',uint8),
+            ('X',uint8),
+            ('Y',uint8),
+            ('S',uint8),
+            ('p',uint16),
+            ('savepc',uint16),
+            ('saveflags',uint16),
+            ('clockticks6502',uint16),
+            ('opcode',uint8),
+            #('maxCycles',uint8),
+            ('RAM',CPU_Memory_class_type),
+            ('PRGRAM',uint8[:,:]),
+            ('bank0',uint8[:]),
+            ('Sound',uint8[:]),
+            ('MapperWriteFlag',uint8),
+            ('MapperWriteData',uint8),
+            ('MapperWriteAddress',uint16),
+            ('FrameFlag',uint8),
+            ('PPU',PPU_type),
+            ('APU',APU_type),
+            ('MAPPER',MAPPER_class_type),
+            #('ChannelWrite',uint8[:]),
+            ('JOYPAD1',JOYPAD_type),
+            ('JOYPAD2',JOYPAD_type),
+            ('Running',uint8),
+            ('addrmode',uint8[:]),
+            ('instructions',uint8[:]),
+            ('Ticks',uint8[:])#,
+            #('MAPPER',MAPPER_class_type)
+            #('clockticks6502',uint16),
+            ]
+print('loading CPU CLASS')
+@jitclass(cpu_spec)
+class cpu6502(object):
     'Registers & tempregisters'
     'DF: Be careful. Anything, anywhere that uses a variable of the same name without declaring it will be using these:'
     
@@ -105,274 +124,70 @@ class cpu6502(MMC):
     #_sum = 0 # As Long 'Integer
     #_help = 0 # As Long
 
-    ' arrays'
-    #gameImage = [] #As Byte
+    #addrmodeBase = np.uint16(0) #As Long
+    #maxCycles1 = np.uint8(114) # As Long 'max cycles per scanline from scanlines 0-239
+    #realframes = np.uint8(0) # As Long 'actual # of frames rendered
+    #totalFrame = 0
+    #Frames = 0
+    def __init__(self, memory = memory.Memory(), PPU = PPU(), MAPPER = MAPPER(), APU = APU(), JOYPAD1 = JOYPAD(), JOYPAD2 = JOYPAD()):
 
-    
-    
-    addrmodeBase = np.uint16(0) #As Long
+        #self.AddressMask =0 #Long 'Integer
+        
+        self.PC = 0 #             
+        self.a = 0 #               
+        self.X = 0 #                
+        self.Y = 0 #                
+        self.S = 0 #                
+        self.p = 0 #                
+        self.savepc = 0 # As Long
+        self.saveflags = 0 # As Long 'Integer
+        self.clockticks6502 = 0 # As Long
+        self.opcode = 0 # As Byte
 
-    maxCycles1 = np.uint8(114) # As Long 'max cycles per scanline from scanlines 0-239
-    maxCycles = np.uint8(0) # As Long 'max cycles until next scanline
-    SmartExec = False # As Boolean
-    realframes = np.uint8(0) # As Long 'actual # of frames rendered
+        #self.maxCycles = 0 # As Long 'max cycles until next scanline
 
-
-    CPU_MEM_BANK = 8
-    
-    totalFrame = 0
-    
-    Frames = 0
-
-
-
-    tilebased = True
-    
-
-    def __init__(self, memory, PPU, APU, MAPPER, _consloe):
-        self.PC = np.uint16(0) #             16 bit 寄存器 其值为指令地址
-        self.a = np.uint8(0) #                '累加器
-        self.X = np.uint8(0) #                '寄存器索引
-        self.Y = np.uint8(0) #                '寄存器2
-        self.S = np.uint8(0) #                '堆栈寄存器
-        self.p = np.uint8(0) #                '标志寄存器
-        self.savepc = np.uint16(0) # As Long
-        self.saveflags = np.uint16(0) # As Long 'Integer
-        self.clockticks6502 = np.uint16(0) # As Long
-        self.opcode = np.uint8(0) # As Byte
-
-        self.reg = reg()
+        #self.reg = reg()
         self.RAM = Memory(memory)
         self.PRGRAM = self.RAM.PRGRAM
         self.bank0 = self.PRGRAM[0]
-        self.bank6 = self.PRGRAM[3]
-        self.bank8 = self.PRGRAM[4]
-        self.bankA = self.PRGRAM[5]
-        self.bankC = self.PRGRAM[6]
-        self.bankE = self.PRGRAM[7]
+        #self.bank6 = self.PRGRAM[3]
+        #self.bank8 = self.PRGRAM[4]
+        #self.bankA = self.PRGRAM[5]
+        #self.bankC = self.PRGRAM[6]
+        #self.bankE = self.PRGRAM[7]
         
         self.Sound = self.RAM.PRGRAM[2][0:0x100]
         
-        self.debug = False
+        #self.debug = 0
         self.MapperWriteFlag = 0
-        self.MapperWriteData = {'Address':0,'value':0}
+        self.MapperWriteData =  0
+        self.MapperWriteAddress = 0
 
         self.FrameFlag = 0
 
-        self.consloe = _consloe
         self.PPU = PPU
-        self.PPU.reg = self.PPU.reg
         self.APU = APU
+        #self.ChannelWrite = ChannelWrite
         self.MAPPER = MAPPER
-        self.JOYPAD1 = _consloe.JOYPAD1
-        self.JOYPAD2 = _consloe.JOYPAD2
+        self.JOYPAD1 = JOYPAD1
+        self.JOYPAD2 = JOYPAD2
         
-        self.CPURunning = 1
+        self.Running = 1
         
         self.addrmode = addrmode
         self.instructions = instruction
         self.Ticks = Ticks
 
-        self.instruction_dic ={
-             INS_BNE: self.bne6502,
-             INS_CMP: self.cmp6502,
-             INS_LDA: self.lda6502,
-             INS_STA: self.sta6502,
-             INS_BIT: self.bit6502,
-             INS_BVC: self.bvc6502,
-             INS_BEQ: self.beq6502,
-             INS_INY: self.iny6502,
-             INS_BPL: self.bpl6502,
-             INS_DEX: self.dex6502,
-             INS_INC: self.inc6502,
-             INS_JMP: self.jmp6502,
-             INS_DEC: self.dec6502,
-             INS_JSR: self.jsr6502,
-             INS_AND: self.and6502,
-             INS_NOP: self.nop6502,
-             INS_BRK: self.brk6502,
-             INS_ADC: self.adc6502,
-             INS_EOR: self.eor6502,
-             INS_ASL: self.asl6502,
-             INS_ASLA: self.asla6502,
-             INS_BCC: self.bcc6502,
-             INS_BCS: self.bcs6502,
-             INS_BMI: self.bmi6502,
-             INS_BVS: self.bvs6502,
-             INS_CLC: self.clc6502,
-             INS_CLD: self.cld6502,
-             INS_CLI: self.cli6502,
-             INS_CLV: self.clv6502,
-             INS_CPX: self.cpx6502,
-             INS_CPY: self.cpy6502,
-             INS_DEA: self.dea6502,
-             INS_DEY: self.dey6502,
-             INS_INA: self.ina6502,
-             INS_INX: self.inx6502,
-             INS_LDX: self.ldx6502,
-             INS_LDY: self.ldy6502,
-             INS_LSR: self.lsr6502,
-             INS_LSRA: self.lsra6502,
-             INS_ORA: self.ora6502,
-             INS_PHA: self.pha6502,
-             INS_PHX: self.phx6502,
-             INS_PHP: self.php6502,
-             INS_PHY: self.phy6502,
-             INS_PLA: self.pla6502,
-             INS_PLP: self.plp6502,
-             INS_PLX: self.plx6502,
-             INS_PLY: self.ply6502,
-             INS_ROL: self.rol6502,
-             INS_ROLA: self.rola6502,
-             INS_ROR: self.ror6502,
-             INS_RORA: self.rora6502,
-             INS_RTI: self.rti6502,
-             INS_RTS: self.rts6502,
-             INS_SBC: self.sbc6502,
-             INS_SEC: self.sec6502,
-             INS_SED: self.sed6502,
-             INS_SEI: self.sei6502,
-             INS_STX: self.stx6502,
-             INS_STY: self.sty6502,
-             INS_TAX: self.tax6502,
-             INS_TAY: self.tay6502,
-             INS_TXA: self.txa6502,
-             INS_TYA: self.tya6502,
-             INS_TXS: self.txs6502,
-             INS_TSX: self.tsx6502,
-             INS_BRA: self.bra6502
-        }
-
-
-        self.adrmode_dic ={
-            ADR_ABS: self.abs6502,
-            ADR_ABSX: self.absx6502,
-            ADR_ABSY: self.absy6502,
-            ADR_IMP: ' nothing really necessary cause implied6502 = ""',
-            ADR_IMM: self.imm6502,
-            ADR_INDABSX: self.indabsx6502,
-            ADR_IND: self.indirect6502,
-            ADR_INDX: self.indx6502,
-            ADR_INDY: self.indy6502,
-            ADR_INDZP: self.indzp6502,
-            ADR_REL: self.rel6502,
-            ADR_ZP: self.zp6502,
-            ADR_ZPX: self.zpx6502,
-            ADR_ZPY: self.zpy6502
-            }
-
-        self.new_instruction ={
-             #INS_BNE: self.bne6502,
-             #INS_CMP: self.cmp6502,
-             #INS_LDA: self.lda6502,
-             #INS_STA: self.sta6502,
-             #INS_BIT: self.bit6502,
-             #INS_BVC: self.bvc6502,
-             #INS_BEQ: self.beq6502,
-             #INS_INY: self.iny6502,
-             #INS_BPL: self.bpl6502,
-             #INS_DEX: self.dex6502,
-             #INS_INC: self.inc6502,
-             #INS_JMP: self.jmp6502,
-             #INS_DEC: self.dec6502,
-             #INS_JSR: self.jsr6502,
-             #INS_AND: self.and6502,
-             #INS_NOP: self.nop6502,
-             #INS_BRK: self.brk6502,
-             INS_ADC: ADC(self, None),
-             #INS_EOR: self.eor6502,
-             #INS_ASL: self.asl6502,
-             #INS_ASLA: self.asla6502,
-             #INS_BCC: self.bcc6502,
-             #INS_BCS: self.bcs6502,
-             #INS_BMI: self.bmi6502,
-             #INS_BVS: self.bvs6502,
-             #INS_CLC: self.clc6502,
-             #INS_CLD: self.cld6502,
-             #INS_CLI: self.cli6502,
-             #INS_CLV: self.clv6502,
-             #INS_CPY: self.cpy6502,
-             #INS_DEA: self.dea6502,
-             #INS_DEY: self.dey6502,
-             #INS_INA: self.ina6502,
-             #INS_INX: self.inx6502,
-             #INS_LDX: self.ldx6502,
-             #INS_LDY: self.ldy6502,
-             #INS_LSR: self.lsr6502,
-             #INS_LSRA: self.lsra6502,
-             #INS_ORA: self.ora6502,
-             #INS_PHA: self.pha6502,
-             #INS_PHX: self.phx6502,
-             #INS_PHP: self.php6502,
-             #INS_PHY: self.phy6502,
-             #INS_PLA: self.pla6502,
-             #INS_PLP: self.plp6502,
-             #INS_PLX: self.plx6502,
-             #INS_PLY: self.ply6502,
-             #INS_ROL: self.rol6502,
-             #INS_ROLA: self.rola6502,
-             #INS_ROR: self.ror6502,
-             #INS_RORA: self.rora6502,
-             #INS_RTI: self.rti6502,
-             #INS_RTS: self.rts6502,
-             #INS_SBC: self.sbc6502,
-             #INS_SEC: self.sec6502,
-             #INS_SED: self.sed6502,
-             #INS_SEI: self.sei6502,
-             #INS_STX: self.stx6502,
-             #INS_STY: self.sty6502,
-             #INS_TAX: self.tax6502,
-             #INS_TAY: self.tay6502,
-             #INS_TXA: self.txa6502,
-             #INS_TYA: self.tya6502,
-             #INS_TXS: self.txs6502,
-             #INS_TSX: self.tsx6502,
-             #INS_BRA: self.bra6502
-        }
-
-        self.new_adrmode ={
-            ADR_ABS: self.abs6502,
-            #ADR_ABSX: self.absx6502,
-            #ADR_ABSY: self.absy6502,
-            #ADR_IMP: ' nothing really necessary cause implied6502 = ""',
-            #ADR_IMM: self.imm6502,
-            #ADR_INDABSX: self.indabsx6502,
-            #ADR_IND: self.indirect6502,
-            #ADR_INDX: self.indx6502,
-            #ADR_INDY: self.indy6502,
-            #ADR_INDZP: self.indzp6502,
-            #ADR_REL: self.rel6502,
-            #ADR_ZP: self.zp6502,
-            #ADR_ZPX: self.zpx6502,
-            #ADR_ZPY: self.zpy6502
-            }
-
-
-
-    def sync_cpu2reg(self,reg):
-        reg.PC = self.PC
-        reg.a = self.a
-        reg.X = self.X
-        reg.Y = self.Y
-        reg.S = self.S
-        reg.p = self.p
-        reg.savepc = self.savepc
-        reg.saveflags = self.saveflags
-        reg.clockticks6502 = self.clockticks6502
-        
-
-    def sync_reg2cpu(self,reg):
-        self.PC = reg.PC
-        self.a = reg.a
-        self.X = reg.X
-        self.Y = reg.Y
-        self.S = reg.S
-        self.p = reg.p
-        self.savepc = reg.savepc
-        self.saveflags = reg.saveflags
-        self.clockticks6502 = reg.clockticks6502
 
         
+    @property
+    def maxCycles1(self):
+        return 114
+    @property
+    def debug(self):
+        return 0
+
+       
     def implied6502(self):
         return
 
@@ -380,21 +195,21 @@ class cpu6502(MMC):
         self.a = 0; self.X = 0; self.Y = 0; self.p = 0x22
         self.S = 0xFF
         self.PC = self.Read6502_2(0xFFFC)
-        print "6502 reset:",self.status()
+        
 
     def status(self):
-        return self.Frames,self.PC,self.clockticks6502,self.PPU.reg.PPUSTATUS,self.PPU.CurrentLine,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
+        return self.PC,self.clockticks6502,self.PPU.reg.PPUSTATUS,self.PPU.CurrentLine#,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
 
     def log(self,*args):
         #print self.debug
         if self.debug:
             print args
     
-    def exec6502(self,fun_type = 'normal'):
+    def exec6502(self):
 
         #exec6502new(self)
         
-        while self.consloe.Running:
+        while self.Running:
 
             if self.FrameFlag or self.MapperWriteFlag:
                     
@@ -404,14 +219,82 @@ class cpu6502(MMC):
             self.PC += 1
             self.clockticks6502 += self.Ticks[self.opcode]
 
-            instruction = self.instructions[self.opcode]
-
-            self.instruction_dic.get(instruction)()
+            #self.instruction_dic.get(self.instructions[self.opcode])()
+            self.exec_opcode()
 
             if self.clockticks6502 > self.maxCycles1:
                 self.Scanline()
 
 
+    def exec_opcode(self):
+        instructions = self.instructions[self.opcode]
+        if instructions == INS_BNE: self.bne6502()
+        elif instructions == INS_CMP: self.cmp6502()
+        elif instructions == INS_LDA: self.lda6502()
+        elif instructions == INS_STA: self.sta6502()
+        elif instructions == INS_BIT: self.bit6502()
+        elif instructions == INS_BVC: self.bvc6502()
+        elif instructions == INS_BEQ: self.beq6502()
+        elif instructions == INS_INY: self.iny6502()
+        elif instructions == INS_BPL: self.bpl6502()
+        elif instructions == INS_DEX: self.dex6502()
+        elif instructions == INS_INC: self.inc6502()
+        elif instructions == INS_JMP: self.jmp6502()
+        elif instructions == INS_DEC: self.dec6502()
+        elif instructions == INS_JSR: self.jsr6502()
+        elif instructions == INS_AND: self.and6502()
+        elif instructions == INS_NOP: self.nop6502()
+        elif instructions == INS_BRK: self.brk6502()
+        elif instructions == INS_ADC: self.adc6502()
+        elif instructions == INS_EOR: self.eor6502()
+        elif instructions == INS_ASL: self.asl6502()
+        elif instructions == INS_ASLA: self.asla6502()
+        elif instructions == INS_BCC: self.bcc6502()
+        elif instructions == INS_BCS: self.bcs6502()
+        elif instructions == INS_BMI: self.bmi6502()
+        elif instructions == INS_BVS: self.bvs6502()
+        elif instructions == INS_CLC: self.clc6502()
+        elif instructions == INS_CLD: self.cld6502()
+        elif instructions == INS_CLI: self.cli6502()
+        elif instructions == INS_CLV: self.clv6502()
+        elif instructions == INS_CPX: self.cpx6502()
+        elif instructions == INS_CPY: self.cpy6502()
+        elif instructions == INS_DEA: self.dea6502()
+        elif instructions == INS_DEY: self.dey6502()
+        elif instructions == INS_INA: self.ina6502()
+        elif instructions == INS_INX: self.inx6502()
+        elif instructions == INS_LDX: self.ldx6502()
+        elif instructions == INS_LDY: self.ldy6502()
+        elif instructions == INS_LSR: self.lsr6502()
+        elif instructions == INS_LSRA: self.lsra6502()
+        elif instructions == INS_ORA: self.ora6502()
+        elif instructions == INS_PHA: self.pha6502()
+        elif instructions == INS_PHX: self.phx6502()
+        elif instructions == INS_PHP: self.php6502()
+        elif instructions == INS_PHY: self.phy6502()
+        elif instructions == INS_PLA: self.pla6502()
+        elif instructions == INS_PLP: self.plp6502()
+        elif instructions == INS_PLX: self.plx6502()
+        elif instructions == INS_PLY: self.ply6502()
+        elif instructions == INS_ROL: self.rol6502()
+        elif instructions == INS_ROLA: self.rola6502()
+        elif instructions == INS_ROR: self.ror6502()
+        elif instructions == INS_RORA: self.rora6502()
+        elif instructions == INS_RTI: self.rti6502()
+        elif instructions == INS_RTS: self.rts6502()
+        elif instructions == INS_SBC: self.sbc6502()
+        elif instructions == INS_SEC: self.sec6502()
+        elif instructions == INS_SED: self.sed6502()
+        elif instructions == INS_SEI: self.sei6502()
+        elif instructions == INS_STX: self.stx6502()
+        elif instructions == INS_STY: self.sty6502()
+        elif instructions == INS_TAX: self.tax6502()
+        elif instructions == INS_TAY: self.tay6502()
+        elif instructions == INS_TXA: self.txa6502()
+        elif instructions == INS_TYA: self.tya6502()
+        elif instructions == INS_TXS: self.txs6502()
+        elif instructions == INS_TSX: self.tsx6502()
+        elif instructions == INS_BRA: self.bra6502()     
 
     def Scanline(self):
 
@@ -423,10 +306,10 @@ class cpu6502(MMC):
                     self.PPU.RenderScanline()
 
                     
-                if self.MAPPER.Mapper == 4:
-                    if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.reg.PPUCTRL):
-                        print 'MMC3_HBlank'
-                        self.irq6502()
+                #if self.MAPPER.Mapper == 4:
+                    #if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.reg.PPUCTRL):
+                        #print 'MMC3_HBlank'
+                        #self.irq6502()
                         
                 if self.PPU.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
@@ -444,7 +327,7 @@ class cpu6502(MMC):
                     
                     if self.PPU.render:self.PPU.RenderFrame()
                     self.APU.updateSounds()
-                    self.PPU.CurrentLine = 0
+                    self.PPU.CurrentLine_ZERO()
 
                     self.FrameFlag = 1
                     #self.PPU.Frames += 1
@@ -453,7 +336,7 @@ class cpu6502(MMC):
                     self.PPU.reg.PPUSTATUS_W(0)
                     
                 else:
-                    self.PPU.CurrentLine +=  1
+                    self.PPU.CurrentLine_increment_1()
                 
 
                 self.clockticks6502 -= self.maxCycles1
@@ -462,12 +345,7 @@ class cpu6502(MMC):
 
         #"DF: reordered the the case's. Made address long (was variant)."
     
-    def exec_opcode(self,instruction_opcode):
-            try:
-                self.instruction_dic[instruction_opcode]()
-            except:
-                print "Invalid opcode - %s" %hex(instruction_opcode)
-                print (traceback.print_exc())
+
             
 
     ' This is where all 6502 instructions are kept.'
@@ -479,8 +357,8 @@ class cpu6502(MMC):
      
         self.saveflags = self.p & 0x1
         #print "adc6502"
-        _sum = self.a
-        _sum = (_sum + temp_value) & 0xFF
+        #_sum = self.a
+        _sum = (self.a + temp_value) & 0xFF
         _sum = (_sum + self.saveflags) & 0xFF
         self.p = (self.p | 0x40) if (_sum > 0x7F) or (_sum < -0x80) else (self.p & 0xBF)
       
@@ -506,9 +384,27 @@ class cpu6502(MMC):
         self.p = (self.p | 0x80) if (self.a & 0x80) else (self.p & 0x7F)
 
     def adrmode(self, opcode):    #--------------------------   adrmode   -------------------
-        #self.adrmode_opcode()
-        #if self.addrmode[opcode] = ADR_REL
-        self.adrmode_dic[self.addrmode[opcode]]()
+
+        addrmode_opcode = self.addrmode[opcode]
+        #self.adrmode_dic[addrmode_opcode]();return
+
+        if addrmode_opcode == ADR_ABS: self.abs6502()
+        elif addrmode_opcode == ADR_ABSX: self.absx6502()
+        elif addrmode_opcode == ADR_ABSY: self.absy6502()
+        elif addrmode_opcode == ADR_IMP: pass #' nothing really necessary cause implied6502 = ""',
+        elif addrmode_opcode == ADR_IMM: self.imm6502()
+        elif addrmode_opcode == ADR_INDABSX: self.indabsx6502()
+        elif addrmode_opcode == ADR_IND: self.indirect6502()
+        elif addrmode_opcode == ADR_INDX: self.indx6502()
+        elif addrmode_opcode == ADR_INDY: self.indy6502()
+        elif addrmode_opcode == ADR_INDZP: self.indzp6502()
+        elif addrmode_opcode == ADR_REL: self.rel6502()
+        elif addrmode_opcode == ADR_ZP: self.zp6502()
+        elif addrmode_opcode == ADR_ZPX: self.zpx6502()
+        elif addrmode_opcode == ADR_ZPY: self.zpy6502()
+        
+        
+        
 
 
     
@@ -547,7 +443,7 @@ class cpu6502(MMC):
         '''temp_value = self.Read6502(self.PC)
         self.PC += 1
         self.savepc = self.Read6502_2(temp_value)'''
-        print 'indzp6502'
+        #print 'indzp6502'
         self.savepc = self.Read6502_2(self.Read6502(self.PC))
         self.PC += 1
         
@@ -1085,29 +981,30 @@ class cpu6502(MMC):
     def Read6502(self, address):
         bank = address >> 13
         value = 0
-        if bank in (0x00,0x04,0x05,0x06,0x07):                        # Address >=0x0 and Address <=0x1FFF:
-            return self.RAM.Read(address)
+        #if bank == 0 or bank >= 0x04: #in (0x00,0x04,0x05,0x06,0x07):  
+            #return self.RAM.Read(address)
+        if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
+            return self.PRGRAM[0, address & 0x7FF]
+        elif bank > 0x03:                       # Address >=0x8000 and Address <=0xFFFF
+            return self.PRGRAM[bank, address & 0x1FFF]
         
         elif bank == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
-            if self.PPU.Running:
-                value = self.PPU.Read(address)
-            else:
-                return self.PRGRAM[1, address & 0x0007]
+            return self.PPU.Read(address)
 
         elif (address >=0x4000 and address <=0x4013) or address == 0x4015:
             return self.Sound[address - 0x4000]
-            return self.APU.Sound[address - 0x4000]
+            #return self.APU.Sound[address - 0x4000]
         
         elif address == 0x4016: #"Read JOY1"
-            value = self.JOYPAD1.Read()
+            return self.JOYPAD1.Read()
 
         elif address == 0x4017: #"Read JOY2 "
-            value = self.JOYPAD2.Read()
+            return self.JOYPAD2.Read()
             
         elif bank == 0x03: #Address == 0x6000 -0x7FFF:
             return self.MAPPER.ReadLow(address)
             
-        return value  
+        return 0  
 
 #'=========================================='
 #'           Write6502(Address,value)       '
@@ -1126,14 +1023,13 @@ class cpu6502(MMC):
         elif addr == 0x01 or address == 0x4014:
             '$2000-$3FFF'
             #print "PPU Write" ,Address
-            if self.PPU.Running:
-                self.PPU.Write(address,value)
-            else:
-                PPUWrite(address,value,self.PRGRAM)
+            self.PPU.Write(address,value)
+
             
         elif addr == 0x02:
             '$4000-$5FFF'
-            if address < 0x4100:self.WriteReg(address,value)
+            if address < 0x4100 and address != 0x4014:
+                self.WriteReg(address,value)
         
         elif addr == 0x03:#Address >= 0x6000 and Address <= 0x7FFF:
             #print 'WriteLow'
@@ -1152,42 +1048,47 @@ class cpu6502(MMC):
 
                     
         else:
-            print hex(Address)
-            print "Write HARD bRK"
+            pass
+            #print hex(Address)
+            #print "Write HARD bRK"
 
             
     def WriteReg(self,address,value):
         addr = address & 0xFF
         if  addr <= 0x13 or addr == 0x15:
             self.Sound[address - 0x4000] = value
+            #if addr != 0x15 and (addr >> 2) < 4 :
+                #self.ChannelWrite[addr >> 2] = 1
+                
             self.APU.Write(addr,value)
         elif addr == 0x14:
             #print 'DF: changed gameImage to bank0. This should work'
             pass
-            self.PPU.SpriteRAM = self.PRGRAM[0][value * 0x100:value * 0x100 + 0x100]#self.bank0[value * 0x100:value * 0x100 + 0x100]
-            print self.PPU.SpriteRAM
+            #self.PPU.SpriteRAM = self.PRGRAM[0][value * 0x100:value * 0x100 + 0x100]#self.bank0[value * 0x100:value * 0x100 + 0x100]
+            #print self.PPU.SpriteRAM
         elif addr == 0x16:
             pass
-            self.JOYPAD1.Joypad_Count = 0x0
+            self.JOYPAD1.Joypad_Count_ZERO()
         elif addr == 0x17:
             pass
-            self.JOYPAD2.Joypad_Count = 0x0
+            self.JOYPAD2.Joypad_Count_ZERO()
         else:
-            print addr
+            pass
+            #print addr
     
     def MapperWrite(self,Address, value):
         #print "MapperWrite"
-        if NES.newmapper_debug:
-            exsound_enable =  self.MAPPER.Write(Address, value)
+        #if NES.newmapper_debug:
+        #    exsound_enable =  self.MAPPER.Write(Address, value)
                 
-            if exsound_enable:
-                self.APU.ExWrite(Address, value)
+        #    if exsound_enable:
+        #        self.APU.ExWrite(Address, value)
                     
-        else:
+        #else:
             #self.consloe.MapperWrite(self.MapperWriteData)
             self.MapperWriteFlag = True
-            self.MapperWriteData['Address'] = Address
-            self.MapperWriteData['value'] = value
+            self.MapperWriteAddress = Address
+            self.MapperWriteData = value
     
 
 
@@ -1250,18 +1151,96 @@ def Read6502(cpu, address):
         return value  
 
 
+        '''self.instruction_dic ={
+             INS_BNE: self.bne6502,
+             INS_CMP: self.cmp6502,
+             INS_LDA: self.lda6502,
+             INS_STA: self.sta6502,
+             INS_BIT: self.bit6502,
+             INS_BVC: self.bvc6502,
+             INS_BEQ: self.beq6502,
+             INS_INY: self.iny6502,
+             INS_BPL: self.bpl6502,
+             INS_DEX: self.dex6502,
+             INS_INC: self.inc6502,
+             INS_JMP: self.jmp6502,
+             INS_DEC: self.dec6502,
+             INS_JSR: self.jsr6502,
+             INS_AND: self.and6502,
+             INS_NOP: self.nop6502,
+             INS_BRK: self.brk6502,
+             INS_ADC: self.adc6502,
+             INS_EOR: self.eor6502,
+             INS_ASL: self.asl6502,
+             INS_ASLA: self.asla6502,
+             INS_BCC: self.bcc6502,
+             INS_BCS: self.bcs6502,
+             INS_BMI: self.bmi6502,
+             INS_BVS: self.bvs6502,
+             INS_CLC: self.clc6502,
+             INS_CLD: self.cld6502,
+             INS_CLI: self.cli6502,
+             INS_CLV: self.clv6502,
+             INS_CPX: self.cpx6502,
+             INS_CPY: self.cpy6502,
+             INS_DEA: self.dea6502,
+             INS_DEY: self.dey6502,
+             INS_INA: self.ina6502,
+             INS_INX: self.inx6502,
+             INS_LDX: self.ldx6502,
+             INS_LDY: self.ldy6502,
+             INS_LSR: self.lsr6502,
+             INS_LSRA: self.lsra6502,
+             INS_ORA: self.ora6502,
+             INS_PHA: self.pha6502,
+             INS_PHX: self.phx6502,
+             INS_PHP: self.php6502,
+             INS_PHY: self.phy6502,
+             INS_PLA: self.pla6502,
+             INS_PLP: self.plp6502,
+             INS_PLX: self.plx6502,
+             INS_PLY: self.ply6502,
+             INS_ROL: self.rol6502,
+             INS_ROLA: self.rola6502,
+             INS_ROR: self.ror6502,
+             INS_RORA: self.rora6502,
+             INS_RTI: self.rti6502,
+             INS_RTS: self.rts6502,
+             INS_SBC: self.sbc6502,
+             INS_SEC: self.sec6502,
+             INS_SED: self.sed6502,
+             INS_SEI: self.sei6502,
+             INS_STX: self.stx6502,
+             INS_STY: self.sty6502,
+             INS_TAX: self.tax6502,
+             INS_TAY: self.tay6502,
+             INS_TXA: self.txa6502,
+             INS_TYA: self.tya6502,
+             INS_TXS: self.txs6502,
+             INS_TSX: self.tsx6502,
+             INS_BRA: self.bra6502
+        }'''
 
+        '''
+        self.adrmode_dic ={
+            ADR_ABS: self.abs6502,
+            ADR_ABSX: self.absx6502,
+            ADR_ABSY: self.absy6502,
+            ADR_IMP: ' nothing really necessary cause implied6502 = ""',
+            ADR_IMM: self.imm6502,
+            ADR_INDABSX: self.indabsx6502,
+            ADR_IND: self.indirect6502,
+            ADR_INDX: self.indx6502,
+            ADR_INDY: self.indy6502,
+            ADR_INDZP: self.indzp6502,
+            ADR_REL: self.rel6502,
+            ADR_ZP: self.zp6502,
+            ADR_ZPX: self.zpx6502,
+            ADR_ZPY: self.zpy6502
+            }
+'''
+        
 
-@jit
-def PPUWrite(address,value,PRGRAM):
-    addr = address & 0x0007
-    PRGRAM[1,addr] = value
-
-@jit
-def PPURead(address,PRGRAM):
-    #improve speed
-    addr = address & 0x0007
-    return PRGRAM[1,addr]
 
     
 @jit

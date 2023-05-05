@@ -60,8 +60,6 @@ class CONSLOE(MMC, NES):
         self.debug = debug
         self.nesROM = nesROM()
         
-        print 'init APU'
-        self.APU = APU(self.memory)
         self.JOYPAD1 = JOYPAD()
         self.JOYPAD2 = JOYPAD()
 
@@ -86,6 +84,10 @@ class CONSLOE(MMC, NES):
         self.PPU = PPU(self.memory, self.nesROM.ROM)
         self.PPU.pPPUinit(self.PPU_Running,self.PPU_render,self.PPU_debug)
 
+        
+        #self.ChannelWrite = ChannelWrite
+        print 'init APU'
+        self.APU = APU(self.memory)
         #self.APU.pAPUinit()
 
         
@@ -99,11 +101,12 @@ class CONSLOE(MMC, NES):
             
             self.MAPPER = eval('MAPPER.mapper%d.MAPPER(cartridge)' %(self.nesROM.Mapper))
             print 'init CPU'
-            self.CPU = cpu6502(self.memory, self.PPU, self.APU, self.MAPPER, self)
+            self.CPU = cpu6502(self.memory, self.PPU, self.MAPPER, self.APU, #self.APU, 
+                               self.JOYPAD1, self.JOYPAD2)
         
             self.MAPPER.reset()
             
-            self.CPU.debug = debug
+            #self.CPU.debug = debug
 
             print "NEW MAPPER process"
             NES.newmapper_debug = 1
@@ -114,7 +117,8 @@ class CONSLOE(MMC, NES):
             
             self.MAPPER = cartridge
             print 'init CPU'
-            self.CPU = cpu6502(self.memory, self.PPU, self.APU, self.MAPPER, self)
+            self.CPU = cpu6502(self.memory, self.PPU, self.MAPPER, self.APU, #self.APU, 
+                               self.JOYPAD1, self.JOYPAD2)
         
             LoadNES = self.MapperChoose(NES.Mapper)
             print 'OLD MapperWrite'
@@ -134,6 +138,7 @@ class CONSLOE(MMC, NES):
  
         print "Successfully loaded %s" %self.nesROM.filename
         self.CPU.reset6502()
+        print "6502 reset:",self.CPU.status()
         #self.cpu6502.PPU.MirrorXor = self.ROM.MirrorXor # As Long 'Integer
 
         self.start = time.time()
@@ -170,6 +175,7 @@ class CONSLOE(MMC, NES):
 
             self.CPU.exec6502()
             if self.CPU.FrameFlag:
+                #self.APU.updateSounds()
                 self.playSounds()
                 #print self.CPU.PRGRAM[2][0:0x100]
                 #print self.APU.Sound
@@ -200,7 +206,7 @@ class CONSLOE(MMC, NES):
                 
             
             if self.CPU.MapperWriteFlag:
-                self.MapperWrite(self.CPU.MapperWriteData)
+                self.MapperWrite(self.CPU.MapperWriteAddress, self.CPU.MapperWriteData)
            
             
             
@@ -215,16 +221,19 @@ class CONSLOE(MMC, NES):
                 
                 if self.APU.chk_SoundCtrl(ch):
                     #self.midiout.send_message([self.APU.SoundChannel[ch],self.APU.tones[ch],self.APU.volume[ch]])
-                    if self.APU.SoundChannel[ch]:
-                        #print [self.APU.SoundChannel[ch],self.APU.tones[ch],self.APU.volume[ch]]
+                    if self.APU.SoundChannel[ch] and self.APU.volume[ch] > 0 and self.APU.tones[ch] != 0:
+                        
                         self.midiout.send_message([0x90 + ch,self.APU.tones[ch],self.APU.volume[ch]])
+                        self.APU.SoundChannel_ZERO(ch)
+            
                     else:
-                        self.midiout.send_message([0x80 + ch,self.APU.tones[ch],self.APU.volume[ch]])
+                        self.midiout.send_message([0x80 + ch,self.APU.tones[ch],0])
                 else:
-                    self.midiout.send_message([0x80 + ch,self.APU.tones[ch],self.APU.volume[ch]])
+                    self.midiout.send_message([0x80 + ch,self.APU.tones[ch],0])
+                    self.APU.SoundChannel_ONE(ch)
                     
                 if self.APU.Frames >= self.APU.lastFrame[ch]:
-                    self.midiout.send_message([0x80 + ch,self.APU.tones[ch],self.APU.volume[ch]])
+                    self.midiout.send_message([0x80 + ch,self.APU.tones[ch],0])
                     
             #self.midiout.send_message(self.APU.SoundBuffer[1])
             #self.midiout.send_message(self.APU.SoundBuffer[2])
@@ -296,11 +305,11 @@ class CONSLOE(MMC, NES):
         if MapperType == 0:
             self.Select8KVROM(0)
 
-            if self.ROM.PrgCount >= 2:
+            if self.nesROM.PrgCount >= 2:
                 
                 self.reg8 = 0; self.regA = 1; self.regC = 2; self.regE = 3
                 
-            elif self.ROM.PrgCount == 1:
+            elif self.nesROM.PrgCount == 1:
                 self.reg8 = 0; self.regA = 1; self.regC = 0; self.regE = 1
             else:
                 self.reg8 = 0; self.regA = 0; self.regC = 0; self.regE = 0
@@ -355,20 +364,20 @@ class CONSLOE(MMC, NES):
     ' on DarcNES.                        '
     '===================================='
 
-    def MapperWrite(self,MapperWriteData):
+    def MapperWrite(self,MapperWriteAddress, MapperWriteData):
         self.CPU.MapperWriteFlag = False
         if NES.Mapper == 0:
             pass
         elif NES.Mapper == 2:
-            self.reg8 = MapperWriteData['value'] * 2
+            self.reg8 = MapperWriteData * 2
             self.regA = self.reg8 + 1
             self.SetupBanks()
             
         elif NES.Mapper == 3:
-            self.Select8KVROM(MapperWriteData['value'] & self.ROM.AndIt)
+            self.Select8KVROM(MapperWriteData & self.ROM.AndIt)
             
         elif NES.Mapper == 4:
-            self.MMC3Write(MapperWriteData['value'], MapperWriteData['Address']) #' this function is too big to store here..
+            self.MMC3Write(MapperWriteData, MapperWriteAddress) #' this function is too big to store here..
             
         else:
             print "Unsupport MapperWrite", NES.Mapper
@@ -552,6 +561,7 @@ def show_choose(ROMS_INFO):
 def run(debug = False):
     ROMS = roms_list()
     ROMS_INFO = get_roms_mapper(ROMS)
+    fc = CONSLOE(debug)
     while True:
         show_choose(ROMS_INFO)
         gn = input("choose a number: ")
@@ -560,7 +570,6 @@ def run(debug = False):
             break
         if not gn <= len(ROMS):
             continue
-        fc = CONSLOE(debug)
         #fc.debug = True
         fc.LoadROM(ROMS_DIR + ROMS[gn])
         fc.PPU_Running = 1

@@ -24,7 +24,7 @@ from pal import BGRpal
 
         
 
-      
+print('loading PPU CLASS')      
 @jitclass([('CurrentLine',uint16),('HScroll',uint16),('vScroll',uint16), ('scX',uint16), ('scY',uint16), \
            ('reg',PPU_reg_type),
            ('memory',PPU_memory_type),
@@ -152,7 +152,11 @@ class PPU(object):
     def Write(self,address,value):
         self.reg.write(address,value)
 
+    def CurrentLine_ZERO(self):
+        self.CurrentLine = 0
                 
+    def CurrentLine_increment_1(self):
+        self.CurrentLine += 1
                 
     def RenderScanline(self):
         '''if self.CurrentLine == 0:
@@ -495,6 +499,8 @@ class PPU(object):
 
         return PatternTable
 
+PPU_type = nb.deferred_type()
+PPU_type.define(PPU.class_type.instance_type)
 
 '''                        
 #@jit

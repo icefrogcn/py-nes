@@ -35,6 +35,7 @@ def rom_ok(data):
     else:
         return False
 
+print('loading ROM CLASS')
 @jitclass([('info',uint16[:]), \
            ('PROM_SIZE_array',uint8[:]), \
            ('VROM_SIZE_array',uint8[:]), \
