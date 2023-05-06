@@ -36,6 +36,7 @@ class MAPPER(object):
         self.PROM = ROM.PROM
         self.VROM = ROM.VROM
 
+    @property
     def Mapper(self):
         return self.ROM.Mapper
     @property
@@ -52,10 +53,13 @@ class MAPPER(object):
         self.ROM.Mirroring_W(value)  
         
     def reset(self):
-        return self.PRGRAM
+        if self.Mapper == 2:
+            self.SetPROM_32K_Bank(0, 1, self.ROM.PROM_8K_SIZE - 2, self.ROM.PROM_8K_SIZE - 1)
 
-    def Write(self,address,data):#$8000-$FFFF Memory write
-        print 'init Write'
+
+    def Write(self,addr,data):#$8000-$FFFF Memory write
+        if self.Mapper == 2:
+            self.SetPROM_16K_Bank(4, data )
 
     def Read(self,address):#$8000-$FFFF Memory read(Dummy)
         return self.PRGRAM[addr>>13,address & 0x1FFF]

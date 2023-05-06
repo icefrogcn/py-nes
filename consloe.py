@@ -5,6 +5,7 @@ import traceback
 import time
 import datetime
 import threading
+import multiprocessing
 
 import rtmidi
 import keyboard
@@ -24,11 +25,11 @@ from rom import nesROM
 from rom import get_Mapper_by_fn
 
 
-from cpu6502commands import init6502
+from cpu6502_opcodes import init6502
 
 import cpu6502
 from cpu6502 import cpu6502
-#from cpu import *
+
 
 from ppu import PPU
 from apu import APU
@@ -56,13 +57,13 @@ class CONSLOE(MMC, NES):
         FirstRead = 1
 
         self.memory = memory.Memory()
-        
         self.debug = debug
         self.nesROM = nesROM()
         
         self.JOYPAD1 = JOYPAD()
         self.JOYPAD2 = JOYPAD()
 
+        #self.FrameBuffer = np.zeros((720, 768, 3),np.uint8)
                
         #self.CPURunning = cpu6502.CPURunning
 
@@ -80,20 +81,21 @@ class CONSLOE(MMC, NES):
         
     def StartingUp(self):
         init6502()
-        print 'init PPU'
+        print print_now(),'init PPU'
         self.PPU = PPU(self.memory, self.nesROM.ROM)
         self.PPU.pPPUinit(self.PPU_Running,self.PPU_render,self.PPU_debug)
-
+        #self.FrameBuffer = self.PPU.FrameBuffer
+        
         
         #self.ChannelWrite = ChannelWrite
-        print 'init APU'
+        print print_now(),'init APU'
         self.APU = APU(self.memory)
-        self.SoundON = [0] * 4
+        
         self.APU.pAPUinit()
 
         
         
-        print 'init MAPPER'
+        print print_now(),'init MAPPER'
         MAPPER = __import__('mappers')
         cartridge = MAPPER.mapper.MAPPER(self.nesROM.ROM, self.memory)
         #self.PPU.cartridge = cartridge
@@ -101,15 +103,16 @@ class CONSLOE(MMC, NES):
 
             
             self.MAPPER = eval('MAPPER.mapper%d.MAPPER(cartridge)' %(self.nesROM.Mapper))
-            print 'init CPU'
+            #self.MAPPER = cartridge
+            print print_now(),'init CPU'
             self.CPU = cpu6502(self.memory, self.PPU, self.MAPPER, self.APU.ChannelWrite, #self.APU, 
                                self.JOYPAD1, self.JOYPAD2)
         
             self.MAPPER.reset()
             
             #self.CPU.debug = debug
-
-            print "NEW MAPPER process"
+            self.CPU.SET_NEW_MAPPER()
+            print print_now(),"NEW MAPPER process"
             NES.newmapper_debug = 1
             LoadNES = 1
         except:
@@ -117,12 +120,12 @@ class CONSLOE(MMC, NES):
             NES.newmapper_debug = 0
             
             self.MAPPER = cartridge
-            print 'init CPU'
+            print print_now(),'init CPU'
             self.CPU = cpu6502(self.memory, self.PPU, self.MAPPER, self.APU.ChannelWrite, #self.APU, 
                                self.JOYPAD1, self.JOYPAD2)
         
             LoadNES = self.MapperChoose(NES.Mapper)
-            print 'OLD MapperWrite'
+            print print_now(),'OLD MapperWrite'
                 
             if( NES.VROM_8K_SIZE ):
                 self.Select8KVROM(0)
@@ -137,9 +140,9 @@ class CONSLOE(MMC, NES):
             return False
 
  
-        print "Successfully loaded %s" %self.nesROM.filename
+        print print_now(),"Successfully loaded %s" %self.nesROM.filename
         self.CPU.reset6502()
-        print "6502 reset:",self.CPU.status()
+        print print_now(),"6502 reset:",self.CPU.status()
         #self.cpu6502.PPU.MirrorXor = self.ROM.MirrorXor # As Long 'Integer
 
         self.start = time.time()
@@ -169,25 +172,30 @@ class CONSLOE(MMC, NES):
 '''
 
         
-        
+        print print_now(),"The number of CPU is:",str(multiprocessing.cpu_count())
+        print print_now(),'Parent process %s.' % os.getpid()
+        self.pool = multiprocessing.Pool(multiprocessing.cpu_count())
+
+            
         self.Running = 1
-        print 'First runing jitclass need compiling about 10-60 seconds...ooh...wait...'
+        print print_now(),'First runing jitclass need compiling about 10-60 seconds...ooh...wait...'
         while self.Running:
-
-            self.CPU.exec6502()
-            if self.CPU.FrameFlag:
-                #print self.CPU.PRGRAM[2][0:0x100]
-                #print self.APU.Sound
-                #print self.CPU.Sound
+            #self.CPU.exec6502()
+            Frames = self.CPU.exec6502()
+            #print dir(cpu_process)
+            #cpu_process.start()
+            if Frames:
+                #print self.CPU.PRGRAM[2][0:0x16]
+                #print self.APU.Sound[0:0x16]
+                #print self.CPU.Sound[0:0x16]
                 
-                if self.PPU_Running and self.PPU_render:
-                    self.blitFrame()
+                if self.PPU_Running and self.PPU_render:self.blitFrame()
 
-                self.APU.updateSounds()
+                self.APU.updateSounds(Frames)
                 #self.playSounds()
 
 
-                self.ShowFPS()
+                self.ShowFPS(Frames)
                 self.CPU.FrameFlag = 0
 
                 if keyboard.is_pressed('0'):
@@ -269,6 +277,7 @@ class CONSLOE(MMC, NES):
             
     def blitFrame(self):
         self.FrameBuffer = paintBuffer(self.PPU.FrameArray,self.PPU.Pal,self.PPU.Palettes)
+        
         if self.debug == False and self.PPU_render:
             pass
             self.blitScreen()
@@ -295,7 +304,11 @@ class CONSLOE(MMC, NES):
         if self.PPU_render:
             cv2.destroyAllWindows()
         if self.APU.available_ports:
-            self.midiout.close_port()
+            self.APU.midiout.close_port()
+        del self.CPU
+        del self.APU
+        del self.PPU
+        del self.MAPPER
             
     def blitScreen(self):
         
@@ -315,17 +328,20 @@ class CONSLOE(MMC, NES):
         cv2.imshow("PatternTable0", self.FrameBuffer)
         cv2.waitKey(1)
         
-    def ShowFPS(self):
-        self.totalFrame += 1
+    def ShowFPS(self,nowFrames):
+            #print (nowFrames - self.totalFrame)/(time.time() - self.start)
+            #print type((nowFrames - self.totalFrame)/(time.time() - self.start))
         if time.time() - self.start > 4:
-                FPS =  'FPS: %d'%(self.totalFrame >> 2) # 
-                if self.CPU.PPU.debug == False:
+            FPS =  'FPS: %d' %((nowFrames - self.totalFrame) >> 2)  # 
+            if self.CPU.PPU.debug == False:
                     
-                    cv2.setWindowTitle('Main',"%s %d %d %d"%(FPS,self.CPU.PPU.CurrentLine,self.CPU.PPU.vScroll,self.CPU.PPU.HScroll))
-                else:
-                    print FPS,self.CPU.PPU.render,self.CPU.PPU.tilebased
-                self.start = time.time()
-                self.totalFrame = 0
+                cv2.setWindowTitle('Main',"%s %d %d %d"%(FPS,self.CPU.PPU.CurrentLine,self.CPU.PPU.vScroll,self.CPU.PPU.HScroll))
+            else:
+                print FPS,self.CPU.PPU.render,self.CPU.PPU.tilebased
+            self.start = time.time()
+            
+
+            self.totalFrame = nowFrames
         
     def MapperChoose(self,MapperType):
         MapperChoose = 1
@@ -392,7 +408,8 @@ class CONSLOE(MMC, NES):
     '===================================='
 
     def MapperWrite(self,MapperWriteAddress, MapperWriteData):
-        self.CPU.MapperWriteFlag = False
+        self.CPU.MapperWriteFlag = 0
+        #print 'OLD MapperWrite'
         if NES.Mapper == 0:
             pass
         elif NES.Mapper == 2:

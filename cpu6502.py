@@ -2,31 +2,17 @@
 
 import time
 from numba import jit,jitclass
-from numba import int8,uint8,int16,uint16
+from numba import int8,uint8,int16,uint16,uint32
 import numpy as np
 import numba as nb
 
 import traceback
 
-import keyboard
 
 #CPU Memory Map
-'''
-' M6502 CPU Implementation for basicNES 2000.
-' By Don Jarrett & Tobias Str鰉stedt, 1997-2000
-' If you use this file commercially please drop me a mail
-' at r.jarrett@worldnet.att.net | d.jarrett@worldnet.att.net.
-' basicNES Copyright (C) 1996-2000 Don Jarrett.
-'''
+
 #自定义类
-from cpu6502commands import *
-
-from cpu6502instructions import *
-
-import cpu6502addressmode as addressmode
-
-from deco import *
-from vbfun import MemCopy
+from cpu6502_opcodes import *
          
 import memory
 from nes import NES
@@ -95,10 +81,12 @@ cpu_spec = [('PC',uint16),
             ('PRGRAM',uint8[:,:]),
             ('bank0',uint8[:]),
             ('Sound',uint8[:]),
+            ('NewMapperWriteFlag',uint8),
             ('MapperWriteFlag',uint8),
             ('MapperWriteData',uint8),
             ('MapperWriteAddress',uint16),
             ('FrameFlag',uint8),
+            ('Frames',uint32),
             ('PPU',PPU_type),
             #('APU',APU_type),
             ('ChannelWrite',uint8[:]),
@@ -116,24 +104,15 @@ cpu_spec = [('PC',uint16),
             ]
 print('loading CPU CLASS')
 ChannelWrite = np.zeros(0x4,np.uint8)
-SoundChannel = np.zeros(0x4,np.uint8)
         
 @jitclass(cpu_spec)
 class cpu6502(object):
     'Registers & tempregisters'
-    'DF: Be careful. Anything, anywhere that uses a variable of the same name without declaring it will be using these:'
     
     '32bit instructions are faster in protected mode than 16bit'
-
-    #value = 0 # As Long 'Integer
-    #_sum = 0 # As Long 'Integer
-    #_help = 0 # As Long
-
-    #addrmodeBase = np.uint16(0) #As Long
     #maxCycles1 = np.uint8(114) # As Long 'max cycles per scanline from scanlines 0-239
     #realframes = np.uint8(0) # As Long 'actual # of frames rendered
-    #totalFrame = 0
-    #Frames = 0
+
     def __init__(self, memory = memory.Memory(), PPU = PPU(), MAPPER = MAPPER(), ChannelWrite = ChannelWrite, JOYPAD1 = JOYPAD(), JOYPAD2 = JOYPAD()):
 
         #self.AddressMask =0 #Long 'Integer
@@ -151,7 +130,6 @@ class cpu6502(object):
 
         #self.maxCycles = 0 # As Long 'max cycles until next scanline
 
-        #self.reg = reg()
         self.RAM = Memory(memory)
         self.PRGRAM = self.RAM.PRGRAM
         self.bank0 = self.PRGRAM[0]
@@ -164,11 +142,13 @@ class cpu6502(object):
         self.Sound = self.RAM.PRGRAM[2][0:0x100]
         
         #self.debug = 0
+        self.NewMapperWriteFlag = 0
         self.MapperWriteFlag = 0
         self.MapperWriteData =  0
         self.MapperWriteAddress = 0
 
         self.FrameFlag = 0
+        self.Frames = 0
 
         self.PPU = PPU
         #self.APU = APU
@@ -184,7 +164,12 @@ class cpu6502(object):
         self.instructions = instruction
         self.Ticks = Ticks
 
-
+    def SET_NEW_MAPPER(self):
+        self.NewMapperWriteFlag = 1
+    @property
+    def GET_NEW_MAPPER(self):
+        return self.NewMapperWriteFlag
+        
         
     @property
     def maxCycles1(self):
@@ -217,9 +202,11 @@ class cpu6502(object):
         
         while self.Running:
 
-            if self.FrameFlag or self.MapperWriteFlag:
-                    
-                    return
+            if self.FrameFlag:
+                return self.Frames
+            
+            if self.MapperWriteFlag:
+                return 0
                 
             self.opcode = self.Read6502(self.PC)  #Fetch Next Operation
             self.PC += 1
@@ -230,6 +217,8 @@ class cpu6502(object):
 
             if self.clockticks6502 > self.maxCycles1:
                 self.Scanline()
+
+            
 
 
     def exec_opcode(self):
@@ -333,7 +322,8 @@ class cpu6502(object):
                             self.nmi6502()
 
                 if self.PPU.CurrentLine == 0:
-                    pass
+                    self.Frames += 1
+
                     #self.APU.updateSounds()
 
                 if self.PPU.CurrentLine == 258:
@@ -347,12 +337,11 @@ class cpu6502(object):
                     self.PPU.CurrentLine_ZERO()
 
                     self.FrameFlag = 1
-                    #self.PPU.Frames += 1
-
+                    
                     self.PPU.reg.PPUSTATUS_W(0)
                     
                 else:
-                    self.PPU.CurrentLine_increment_1()
+                    self.PPU.CurrentLine_increment(1)
                 
 
                 self.clockticks6502 -= self.maxCycles1
@@ -1042,9 +1031,9 @@ class cpu6502(object):
             self.PPU.Write(address,value)
 
             
-        elif addr == 0x02:
+        elif addr == 0x02 and address != 0x4014:
             '$4000-$5FFF'
-            if address < 0x4100 and address != 0x4014:
+            if address < 0x4100:
                 self.WriteReg(address,value)
         
         elif addr == 0x03:#Address >= 0x6000 and Address <= 0x7FFF:
@@ -1071,17 +1060,14 @@ class cpu6502(object):
             
     def WriteReg(self,address,value):
         addr = address & 0xFF
-        if  addr <= 0x13 or addr == 0x15:
-            self.Sound[address - 0x4000] = value
-            #if addr != 0x15 and (addr >> 2) < 4 :
-                #self.ChannelWrite[addr >> 2] = 1
-        
-            if addr == 0x15:
-                pass
-            else:
-                n = addr >> 2
-                if n < 4 :
-                    self.ChannelWrite[n] = 1
+        if addr == 0x15:
+            self.Sound[0x15] = value
+
+        elif addr <= 0x13:
+            self.Sound[addr] = value
+            n = addr >> 2
+            if n < 4 :
+                self.ChannelWrite[n] = 1
                       
             #self.APU.Write(addr,value)
         elif addr == 0x14:
@@ -1099,18 +1085,18 @@ class cpu6502(object):
             pass
             #print addr
     
-    def MapperWrite(self,Address, value):
+    def MapperWrite(self,address, value):
         #print "MapperWrite"
-        #if NES.newmapper_debug:
+        if self.GET_NEW_MAPPER:
+            self.MAPPER.Write(address, value)
         #    exsound_enable =  self.MAPPER.Write(Address, value)
                 
         #    if exsound_enable:
         #        self.APU.ExWrite(Address, value)
                     
-        #else:
-            #self.consloe.MapperWrite(self.MapperWriteData)
-            self.MapperWriteFlag = True
-            self.MapperWriteAddress = Address
+        else:
+            self.MapperWriteFlag = 1
+            self.MapperWriteAddress = address
             self.MapperWriteData = value
     
 

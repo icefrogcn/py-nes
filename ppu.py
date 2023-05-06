@@ -31,6 +31,7 @@ print('loading PPU CLASS')
            ('ROM',ROM_class_type),
            ('Pal',uint8[:,:]), \
            ('FrameArray',uint8[:,:]),
+           #('FrameBuffer',uint8[:,:,:]),
            ('Running',uint8),
            ('render',uint8),
            ('tilebased',uint8),
@@ -53,6 +54,7 @@ class PPU(object):
         self.Pal        = pal
 
         self.FrameArray = np.zeros((720, 768),np.uint8)
+        #self.FrameBuffer = np.zeros((720, 768, 3),np.uint8)
         
         #self.BGPAL = [0] * 0x10
         #self.SPRPAL = [0] * 0x10
@@ -155,8 +157,8 @@ class PPU(object):
     def CurrentLine_ZERO(self):
         self.CurrentLine = 0
                 
-    def CurrentLine_increment_1(self):
-        self.CurrentLine += 1
+    def CurrentLine_increment(self,value):
+        self.CurrentLine += value
                 
     def RenderScanline(self):
         '''if self.CurrentLine == 0:
@@ -288,11 +290,19 @@ class PPU(object):
 
         self.RenderSprites()
         
-        #self.FrameBuffer = paintBuffer(self.FrameArray,self.Pal,self.Palettes)
+        #self.paintBuffer()
 
         
+    def paintBuffer(self):
+        [rows, cols] = self.FrameArray.shape
+        for i in range(rows):
+            for j in range(cols):
+                self.FrameBuffer[i, j] = self.Pal[self.Palettes[self.FrameArray[i, j]]]
+        #return FrameBuffer
 
-            
+    def blitFrame(self):
+        paintBuffer(self.FrameArray,self.Pal,self.Palettes)
+    
     def RenderSprites(self):
         #PatternTablesAddress = 0x1000 if self.Control1 & PPU_SPTBL_BIT and self.sp16 else 0
         PatternTablesAddress,PatternTablesSize = (0x1000,0x1000) if self.reg.PPUCTRL & self.reg.bit.PPU_SPTBL_BIT and self.sp16 else (0 ,0x1000)

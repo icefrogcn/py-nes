@@ -124,34 +124,32 @@ class APU(object):
 
     def set_FRAMES(self,frame):
         self.Frames  = frame
-        
-    def updateSounds(self):
-        #print "Playing"
-        self.Frames += 1
+
+
+    
+    def updateSounds(self,Frames):
+        self.Frames = Frames
         #print self.Sound[0:0x16]
-        #print self.ChannelWrite
+        #print self.Frames, self.doSound
         if self.doSound :
-            self.ReallyStopTones()
+            #print 'playing'
             self.PlayRect(0)
             self.PlayRect(1)
             self.PlayTriangle(2)
             self.PlayNoise(3)
+        else:
+            self.ReallyStopTones()
+            
 
     
     def playTone(self,channel, tone, v):
         if tone <> self.tones[channel] or v < self.volume[channel] - 3 or v > self.volume[channel] or v == 0 :
-            #self.stopTone(channel)
-            if self.tones[channel] != 0:
-                self.ToneOff(channel, self.tones[channel])
-                self.tones[channel] = 0
-                self.volume[channel] = 0
-            if self.doSound and tone > 0  and tone <= 127 and v > 0 :
-                #self.v[channel] = v
+            self.stopTone(channel)
+            if self.doSound and tone != 0 and v > 0 :
                 self.volume[channel] = v
                 self.tones[channel] = tone
                 self.ToneOn(channel, tone, v * 8)
-                return 1
-        return 0
+
         #else:
             #self.SoundChannel[channel] = 0
 
@@ -159,7 +157,7 @@ class APU(object):
 
     def stopTone(self,channel):
         if self.tones[channel] != 0:
-            self.stopTones[channel] = self.tones[channel]
+            self.ToneOff(channel, self.tones[channel])
             self.tones[channel] = 0
             self.volume[channel] = 0
             
@@ -168,9 +166,7 @@ class APU(object):
 
     def ReallyStopTones(self):
         for channel in range(4):
-            if self.stopTones[channel] != 0 and self.stopTones[channel] != self.tones[channel]:
-                self.ToneOff(channel,self.stopTones[channel])
-                self.stopTones[channel] = 0
+            self.stopTone(channel)
             
     def PlayRect(self,ch):
         volume = self.Sound[ch * 4 + 0] & 15
@@ -189,8 +185,7 @@ class APU(object):
         self.playfun(ch, frequency, volume)
 
             
-    def playfun(self,ch,frequency,volume):
-        s = 0
+    def playfun(self, ch, frequency, volume):
         if self.SoundCtrl and self.pow2[ch] :
             #volume = v #'Get volume'
             length = self.vlengths[self.Sound[ch * 4 + 3] // 8] #'Get length'
@@ -199,7 +194,7 @@ class APU(object):
                     if self.ChannelWrite[ch] : #Ensures that a note doesn't replay unless memory written
                         self.ChannelWrite[ch] = 0
                         self.lastFrame[ch] = self.Frames + length
-                        s = self.playTone(ch, getTone(frequency), volume )
+                        self.playTone(ch, getTone(frequency), volume )
                     
                 else:
                     self.stopTone(ch)
@@ -213,32 +208,26 @@ class APU(object):
 
         if self.Frames >= self.lastFrame[ch]:
             self.stopTone(ch)
-            return 0
-        return s
+
         
     
 
 
     def ToneOn(self, channel, tone, volume):
         if self.available_ports :
-            tone = 0 if tone < 0 else tone
-            tone = 255 if tone > 255 else tone
+            if tone < 0:tone = 0 
+            if tone > 255:tone = 255 
             #tone = 127 if tone > 127 else 127
             note_on = [0x90 + channel, tone, volume] # channel 1, middle C, velocity 112
-            #self.tonesBuffer[channel] = tone
-            #self.SoundOn[channel] = 0x90 + channel
             self.midiout.send_message(note_on)
             #'midiOutShortMsg mdh, &H90 Or tone * 256 Or channel Or volume * 65536'
 
     def ToneOff(self, channel,tone):
         if self.available_ports :
-            tone = 0 if tone < 0 else tone
-            tone = 255 if tone > 255 else tone
+            if tone < 0:tone = 0 
+            if tone > 255:tone = 255 
             #tone = 127 if tone > 127 else 127
             note_off = [0x80 + channel, tone, 0]
-            #print type(note_off),note_off
-            #self.tonesBuffer[channel] = tone
-            #self.SoundOff[channel] = 0x80 + channel
             self.midiout.send_message(note_off)
 
 
