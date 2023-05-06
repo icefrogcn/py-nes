@@ -33,7 +33,7 @@ from nes import NES
 
 from mmc import MMC
 
-from apu import APU,APU_type
+from apu import APU#,APU_type
 from ppu import PPU,PPU_type
 from joypad import JOYPAD,JOYPAD_type
 from mappers.mapper import MAPPER,MAPPER_class_type
@@ -100,7 +100,9 @@ cpu_spec = [('PC',uint16),
             ('MapperWriteAddress',uint16),
             ('FrameFlag',uint8),
             ('PPU',PPU_type),
-            ('APU',APU_type),
+            #('APU',APU_type),
+            ('ChannelWrite',uint8[:]),
+            #('SoundChannel',uint8[:]),
             ('MAPPER',MAPPER_class_type),
             #('ChannelWrite',uint8[:]),
             ('JOYPAD1',JOYPAD_type),
@@ -113,6 +115,9 @@ cpu_spec = [('PC',uint16),
             #('clockticks6502',uint16),
             ]
 print('loading CPU CLASS')
+ChannelWrite = np.zeros(0x4,np.uint8)
+SoundChannel = np.zeros(0x4,np.uint8)
+        
 @jitclass(cpu_spec)
 class cpu6502(object):
     'Registers & tempregisters'
@@ -129,7 +134,7 @@ class cpu6502(object):
     #realframes = np.uint8(0) # As Long 'actual # of frames rendered
     #totalFrame = 0
     #Frames = 0
-    def __init__(self, memory = memory.Memory(), PPU = PPU(), MAPPER = MAPPER(), APU = APU(), JOYPAD1 = JOYPAD(), JOYPAD2 = JOYPAD()):
+    def __init__(self, memory = memory.Memory(), PPU = PPU(), MAPPER = MAPPER(), ChannelWrite = ChannelWrite, JOYPAD1 = JOYPAD(), JOYPAD2 = JOYPAD()):
 
         #self.AddressMask =0 #Long 'Integer
         
@@ -166,8 +171,9 @@ class cpu6502(object):
         self.FrameFlag = 0
 
         self.PPU = PPU
-        self.APU = APU
-        #self.ChannelWrite = ChannelWrite
+        #self.APU = APU
+        self.ChannelWrite = ChannelWrite
+        
         self.MAPPER = MAPPER
         self.JOYPAD1 = JOYPAD1
         self.JOYPAD2 = JOYPAD2
@@ -302,8 +308,7 @@ class cpu6502(object):
                 #self.log("Scanline:",self.status()) ############################
 
                 
-                if self.PPU.CurrentLine < 240:
-                    self.PPU.RenderScanline()
+                self.PPU.RenderScanline()
 
                     
                 #if self.MAPPER.Mapper == 4:
@@ -314,25 +319,36 @@ class cpu6502(object):
                 if self.PPU.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
                     if self.PPU.CurrentLine == 240 :
-                        if self.PPU.reg.PPUCTRL & 0x80:
-                            self.nmi6502()
+                        if self.PPU.render:self.PPU.RenderFrame()
+
+                        #self.APU.set_FRAMES()#updateSounds()
                            #realframes = realframes + 1
-                    
+
+    
                     self.PPU.reg.PPUSTATUS_W(0x80)
 
-                        
+
+                    if self.PPU.CurrentLine == 240 :
+                        if self.PPU.reg.PPUCTRL & 0x80:
+                            self.nmi6502()
+
+                if self.PPU.CurrentLine == 0:
+                    pass
+                    #self.APU.updateSounds()
+
+                if self.PPU.CurrentLine == 258:
+                    #self.PPU.Status = 0x0
+                    self.PPU.reg.PPUSTATUS_W(0)
+
+                
                 if self.PPU.CurrentLine == 262:
                     #self.log("FRAME:",self.status()) ###########################
                     
-                    
-                    if self.PPU.render:self.PPU.RenderFrame()
-                    self.APU.updateSounds()
                     self.PPU.CurrentLine_ZERO()
 
                     self.FrameFlag = 1
                     #self.PPU.Frames += 1
 
-                    #self.PPU.Status = 0x0
                     self.PPU.reg.PPUSTATUS_W(0)
                     
                 else:
@@ -1059,8 +1075,15 @@ class cpu6502(object):
             self.Sound[address - 0x4000] = value
             #if addr != 0x15 and (addr >> 2) < 4 :
                 #self.ChannelWrite[addr >> 2] = 1
-                
-            self.APU.Write(addr,value)
+        
+            if addr == 0x15:
+                pass
+            else:
+                n = addr >> 2
+                if n < 4 :
+                    self.ChannelWrite[n] = 1
+                      
+            #self.APU.Write(addr,value)
         elif addr == 0x14:
             #print 'DF: changed gameImage to bank0. This should work'
             pass

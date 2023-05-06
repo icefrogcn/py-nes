@@ -189,7 +189,7 @@ class PPU(object):
 	    
         if self.Running == 0:
             if self.reg.PPUMASK & self.reg.bit.PPU_SPDISP_BIT == 0 :return
-            #if self.Status & 0x40 :return #PPU_SPHIT_FLAG
+            if self.reg.PPUSTATUS & 0x40 :return #PPU_SPHIT_FLAG
             if self.CurrentLine > self.SpriteRAM[0] + 8:
                 self.reg.PPUSTATUS_W(self.reg.PPUSTATUS | 0x40)#PPU_SPHIT_FLAG
             return

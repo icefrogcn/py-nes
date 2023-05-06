@@ -88,7 +88,8 @@ class CONSLOE(MMC, NES):
         #self.ChannelWrite = ChannelWrite
         print 'init APU'
         self.APU = APU(self.memory)
-        #self.APU.pAPUinit()
+        self.SoundON = [0] * 4
+        self.APU.pAPUinit()
 
         
         
@@ -101,7 +102,7 @@ class CONSLOE(MMC, NES):
             
             self.MAPPER = eval('MAPPER.mapper%d.MAPPER(cartridge)' %(self.nesROM.Mapper))
             print 'init CPU'
-            self.CPU = cpu6502(self.memory, self.PPU, self.MAPPER, self.APU, #self.APU, 
+            self.CPU = cpu6502(self.memory, self.PPU, self.MAPPER, self.APU.ChannelWrite, #self.APU, 
                                self.JOYPAD1, self.JOYPAD2)
         
             self.MAPPER.reset()
@@ -117,7 +118,7 @@ class CONSLOE(MMC, NES):
             
             self.MAPPER = cartridge
             print 'init CPU'
-            self.CPU = cpu6502(self.memory, self.PPU, self.MAPPER, self.APU, #self.APU, 
+            self.CPU = cpu6502(self.memory, self.PPU, self.MAPPER, self.APU.ChannelWrite, #self.APU, 
                                self.JOYPAD1, self.JOYPAD2)
         
             LoadNES = self.MapperChoose(NES.Mapper)
@@ -148,7 +149,7 @@ class CONSLOE(MMC, NES):
         self.PowerON()
         self.ScreenShow()
 
-
+        '''
         self.midiout = rtmidi.MidiOut()
         self.available_ports = self.midiout.get_ports()
         print self.available_ports
@@ -163,26 +164,29 @@ class CONSLOE(MMC, NES):
 
         self.midiout.send_message([0xC0,80]) #'Square wave'
         self.midiout.send_message([0xC1,80]) #'Square wave'
-        self.midiout.send_message([0xC2,87]) #Triangle wave
+        self.midiout.send_message([0xC2,74]) #Triangle wave
         self.midiout.send_message([0xC3,127]) #Noise. Used gunshot. Poor but sometimes works.'
-
+'''
 
         
         
         self.Running = 1
-        print 'First runing jitclass need complies about 10-60 seconds...ooh...wait...'
+        print 'First runing jitclass need compiling about 10-60 seconds...ooh...wait...'
         while self.Running:
 
             self.CPU.exec6502()
             if self.CPU.FrameFlag:
-                #self.APU.updateSounds()
-                self.playSounds()
                 #print self.CPU.PRGRAM[2][0:0x100]
                 #print self.APU.Sound
                 #print self.CPU.Sound
                 
                 if self.PPU_Running and self.PPU_render:
                     self.blitFrame()
+
+                self.APU.updateSounds()
+                #self.playSounds()
+
+
                 self.ShowFPS()
                 self.CPU.FrameFlag = 0
 
@@ -216,25 +220,48 @@ class CONSLOE(MMC, NES):
     def playSounds(self):
         #print "Playing"
         #self.APU.Frames += 1
+        self.APU.set_FRAMES(self.totalFrame)
         if self.available_ports and self.APU.doSound :
-            for ch in range(4):
+            self.APU.ReallyStopTones()
+            if self.APU.PlayRect(0):
+                self.midiout.send_message([0x90 + 0,self.APU.tonesBuffer[0],self.APU.volume[0]])
+            #else:
+            #    self.midiout.send_message([0x80 + 0,self.APU.tonesBuffer[0],self.APU.volume[0]])
+            if self.APU.PlayRect(1):
+                self.midiout.send_message([0x90 + 1,self.APU.tonesBuffer[1],self.APU.volume[1]])
+            #else:
+            #    self.midiout.send_message([0x80 + 1,self.APU.tonesBuffer[1],self.APU.volume[1]])
+            if self.APU.PlayTriangle(2):
+                self.midiout.send_message([0x90 + 2,self.APU.tonesBuffer[2],self.APU.volume[2]])
+            #else:
+            #    self.midiout.send_message([0x80 + 2,self.APU.tonesBuffer[2],self.APU.volume[2]])
+            if self.APU.PlayNoise(3):
+                self.midiout.send_message([0x90 + 3,self.APU.tonesBuffer[3],self.APU.volume[3]])
+            #else:
+            #    self.midiout.send_message([0x80 + 3,self.APU.tonesBuffer[3],self.APU.volume[3]])
+            
+            '''for ch in range(4):
                 
                 if self.APU.chk_SoundCtrl(ch):
-                    #self.midiout.send_message([self.APU.SoundChannel[ch],self.APU.tones[ch],self.APU.volume[ch]])
-                    if self.APU.SoundChannel[ch] and self.APU.volume[ch] > 0 and self.APU.tones[ch] != 0:
-                        
-                        self.midiout.send_message([0x90 + ch,self.APU.tones[ch],self.APU.volume[ch]])
-                        self.APU.SoundChannel_ZERO(ch)
+                    #self.midiout.send_message([0x90 + ch,self.APU.tonesBuffer[ch],self.APU.volume[ch]])
+                    #print self.APU.frameBuffer[ch] , self.SoundON[ch], 0x90 + ch,self.APU.tonesBuffer[ch],self.APU.volume[ch],self.APU.lastFrame[ch]
+                    if self.APU.frameBuffer[ch] > 0 and self.SoundON[ch] == 0:
+                        self.midiout.send_message([0x90 + ch,self.APU.tonesBuffer[ch],self.APU.volume[ch]])
+                        self.APU.frameBuffer_decrement(ch)
+                        self.SoundON[ch] = 1
             
                     else:
-                        self.midiout.send_message([0x80 + ch,self.APU.tones[ch],0])
+                        self.SoundON[ch] = 0
+                        self.midiout.send_message([0x80 + ch, self.APU.tones[ch], 0])
                 else:
-                    self.midiout.send_message([0x80 + ch,self.APU.tones[ch],0])
-                    self.APU.SoundChannel_ONE(ch)
+                    pass
+                    #self.midiout.send_message([0x80 + ch, self.APU.tonesBuffer[ch], 0])
                     
-                if self.APU.Frames >= self.APU.lastFrame[ch]:
-                    self.midiout.send_message([0x80 + ch,self.APU.tones[ch],0])
                     
+                if self.APU.stopTones[ch] == 0:
+                    pass
+                    self.midiout.send_message([0x80 + ch, self.APU.tones[ch], 0])
+                '''    
             #self.midiout.send_message(self.APU.SoundBuffer[1])
             #self.midiout.send_message(self.APU.SoundBuffer[2])
             #self.midiout.send_message(self.APU.SoundBuffer[3])
@@ -267,7 +294,7 @@ class CONSLOE(MMC, NES):
     def ShutDown(self):
         if self.PPU_render:
             cv2.destroyAllWindows()
-        if self.available_ports:
+        if self.APU.available_ports:
             self.midiout.close_port()
             
     def blitScreen(self):
@@ -289,6 +316,7 @@ class CONSLOE(MMC, NES):
         cv2.waitKey(1)
         
     def ShowFPS(self):
+        self.totalFrame += 1
         if time.time() - self.start > 4:
                 FPS =  'FPS: %d'%(self.totalFrame >> 2) # 
                 if self.CPU.PPU.debug == False:
@@ -298,7 +326,6 @@ class CONSLOE(MMC, NES):
                     print FPS,self.CPU.PPU.render,self.CPU.PPU.tilebased
                 self.start = time.time()
                 self.totalFrame = 0
-        self.totalFrame += 1
         
     def MapperChoose(self,MapperType):
         MapperChoose = 1
