@@ -308,6 +308,7 @@ class cpu6502(object):
                 if self.PPU.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
                     if self.PPU.CurrentLine == 240 :
+                        pass
                         if self.PPU.render:self.PPU.RenderFrame()
 
                         #self.APU.set_FRAMES()#updateSounds()

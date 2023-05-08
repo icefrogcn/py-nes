@@ -94,7 +94,7 @@ class APU(object):
         self.Sound[0x15] = value
     #@property
     def chk_SoundCtrl(self,ch):
-        return self.SoundCtrl and self.pow2[ch]
+        return self.SoundCtrl & self.pow2[ch]
     
     def ShutDown(self):
         if self.available_ports:
@@ -128,11 +128,12 @@ class APU(object):
 
     
     def updateSounds(self,Frames):
-        self.Frames = Frames
+        self.set_FRAMES(Frames)
         #print self.Sound[0:0x16]
         #print self.Frames, self.doSound
         if self.doSound :
             #print 'playing'
+            self.ReallyStopTones()
             self.PlayRect(0)
             self.PlayRect(1)
             self.PlayTriangle(2)
@@ -143,9 +144,12 @@ class APU(object):
 
     
     def playTone(self,channel, tone, v):
-        if tone <> self.tones[channel] or v < self.volume[channel] - 3 or v > self.volume[channel] or v == 0 :
-            self.stopTone(channel)
-            if self.doSound and tone != 0 and v > 0 :
+        if tone != self.tones[channel] or v < self.volume[channel] - 3 or v > self.volume[channel] or v == 0 :
+            if self.tones[channel] != 0:
+                self.ToneOff(channel, self.tones[channel])
+                self.tones[channel] = 0
+                self.volume[channel] = 0
+            if self.doSound and tone >= 0  and v > 0 :
                 self.volume[channel] = v
                 self.tones[channel] = tone
                 self.ToneOn(channel, tone, v * 8)
@@ -157,7 +161,8 @@ class APU(object):
 
     def stopTone(self,channel):
         if self.tones[channel] != 0:
-            self.ToneOff(channel, self.tones[channel])
+            #self.ToneOff(channel, self.tones[channel])
+            self.stopTones[channel] = self.tones[channel]
             self.tones[channel] = 0
             self.volume[channel] = 0
             
@@ -166,7 +171,10 @@ class APU(object):
 
     def ReallyStopTones(self):
         for channel in range(4):
-            self.stopTone(channel)
+            if self.stopTones[channel] !=0 and self.stopTones[channel] != self.tones[channel]:
+                self.ToneOff(channel, self.stopTones[channel])
+                self.stopTones[channel] = 0
+            #self.stopTone(channel)
             
     def PlayRect(self,ch):
         volume = self.Sound[ch * 4 + 0] & 15
@@ -175,7 +183,7 @@ class APU(object):
    
     
     def PlayTriangle(self,ch):
-        volume = 9 #'triangle'
+        volume = 6 #'triangle'
         frequency = self.Sound[ch * 4 + 2]  + (self.Sound[ch * 4 + 3] & 7) * 256
         self.playfun(ch, frequency, volume)
 
@@ -186,9 +194,9 @@ class APU(object):
 
             
     def playfun(self, ch, frequency, volume):
-        if self.SoundCtrl and self.pow2[ch] :
+        if self.chk_SoundCtrl :
             #volume = v #'Get volume'
-            length = self.vlengths[self.Sound[ch * 4 + 3] // 8] #'Get length'
+            length = self.vlengths[self.Sound[ch * 4 + 3] >> 3] #'Get length'
             if volume > 0 :
                 if frequency > 1 :
                     if self.ChannelWrite[ch] : #Ensures that a note doesn't replay unless memory written
@@ -240,12 +248,12 @@ class APU(object):
         freq = 65536 / freq
         #freq = 111861 / (freq + 1)
         
-        t = math.log(freq / 8.176) * 17.31236   # / math.log(1.059463)
+        t = math.log(freq / 8.176) / math.log(1.059463)# = 17.31236
         
-        #t = 1 if t < 1 else t
-        #t = 127 if t > 127 else t
+        if t < 0:t = 0 
+        if t > 127:t = 127 
 
-        return t
+        return int(t)
 
     def playtest(self,mididev):
         pass
@@ -259,10 +267,10 @@ def getTone(freq): #As Long
         
         #freq = 65536 / freq
         freq = 111861 / (freq + 1)
-        t = math.log(freq / 8.176) * 17.31236   # / math.log(1.059463)
+        t = math.log(freq / 8.176) * 17.31236   # 1 / math.log(1.059463) = 17.31236
         
-        #t = 1 if t < 1 else t
-        #t = 127 if t > 127 else t
+        if t < 0:t = 0 
+        if t > 127:t = 127 
 
         return t
 
