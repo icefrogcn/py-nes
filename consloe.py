@@ -268,12 +268,13 @@ class CONSLOE(MMC, NES):
     
     def Waiting_compiling(self):
         print print_now(),'First runing jitclass, compiling is a very time-consuming process...'
-        print print_now(),'take about 240 seconds (i3-6100U)...ooh...waiting...'
+        print print_now(),'take about 300 seconds (i3-6100U)...ooh...waiting...'
         start = time.time()
         while self.CPU.Frames == 0:
-            print print_now(),'jitclass is compiling...',((time.time()- start) / 240) * 100, '%'
+            print print_now(),'jitclass is compiling...',((time.time()- start) / 3.00) , '%'
             #print '6502:',self.status 
             time.sleep(5)
+            if ((time.time()- start) / 3.00) > 150:break
         print print_now(),'jitclass compiled...'
         
         #while self.CPU.FrameFlag & self.CPU.FrameRender:
@@ -291,7 +292,7 @@ class CONSLOE(MMC, NES):
             if self.CPU.Frames:
                 if self.PPU_render:
                     self.PPU.RenderFrame()
-                    self.FrameBuffer = paintBuffer(self.PPU.FrameArray,self.PPU.Pal,self.PPU.Palettes)
+                    
                     if self.debug:
                         pass
                         self.blitPatternTable()
@@ -339,8 +340,8 @@ class CONSLOE(MMC, NES):
         del self.MAPPER
             
     def blitScreen(self):
-        
-        cv2.imshow("Main", self.FrameBuffer[self.PPU.scY:self.PPU.scY + 240,self.PPU.scX:self.PPU.scX+256])
+        self.FrameBuffer = paintBuffer(self.PPU.FrameArray[self.PPU.scY:self.PPU.scY + 240,self.PPU.scX:self.PPU.scX+256],self.PPU.Pal,self.PPU.Palettes)
+        cv2.imshow("Main", self.FrameBuffer)
         cv2.waitKey(1)
 
     def blitPal(self):
@@ -348,6 +349,7 @@ class CONSLOE(MMC, NES):
         cv2.waitKey(1)
 
     def blitPatternTable(self):
+        self.FrameBuffer = paintBuffer(self.PPU.FrameArray,self.PPU.Pal,self.PPU.Palettes)
         cv2.line(self.FrameBuffer,(0,240),(768,240),(0,255,0),1) 
         cv2.line(self.FrameBuffer,(0,480),(768,480),(0,255,0),1) 
         cv2.line(self.FrameBuffer,(256,0),(256,720),(0,255,0),1) 
@@ -395,9 +397,11 @@ class CONSLOE(MMC, NES):
             self.Select8KVROM(0)
             self.reg8 = 0; self.regA = 1; self.regC = 0xFE; self.regE = 0xFF
             self.SetupBanks()
-            sequence = 0;accumulator = 0
-            #Erase data
-            #data(0) = &H1F: data(3) = 0
+            self.sequence = 0
+            self.accumulator = 0
+            self.data = [0] * 4
+            self.data[0] = 0x1F
+            self.data[3] = 0
         
         elif MapperType == 2:
             self.reg8 = 0
@@ -445,6 +449,8 @@ class CONSLOE(MMC, NES):
         #print 'OLD MapperWrite'
         if NES.Mapper == 0:
             pass
+        elif NES.Mapper == 1:
+            self.map1_write(MapperWriteData, MapperWriteAddress)
         elif NES.Mapper == 2:
             self.reg8 = MapperWriteData * 2
             self.regA = self.reg8 + 1
@@ -468,6 +474,17 @@ class CONSLOE(MMC, NES):
         #val1 = self.MaskVROM(val1, NES.VROM_8K_SIZE)
         #self.cpu6502.PPU.VRAM[0:0x2000] = MMC.Select8KVROM(self, val1, self.ROM.VROM)
         self.PPU.VRAM[0:0x2000] = self.nesROM.VROM[val1 * 0x2000 : val1 * 0x2000 + 0x2000]
+        #BankSwitch 0, val1 * 8, 8
+
+    def Select4KVROM(self, val1, bank):
+        val1 = self.MaskVROM(val1, self.nesROM.ChrCount * 2)
+        self.PPU.VRAM[bank * 4 * 0x400: (bank + 1) * 4 * 0x400] = self.nesROM.VROM[val1 * 4 * 0x400 : val1 * 4 * 0x400 + 4 * 0x400]
+        #BankSwitch bank * 4, val1 * 4, 4
+
+    def Select2KVROM(self, val1, bank):
+        val1 = self.MaskVROM(val1, self.nesROM.ChrCount * 4)
+        self.PPU.VRAM[bank * 2 * 0x400: (bank + 1) * 2 * 0x400] = self.nesROM.VROM[val1 * 2 * 0x400 : val1 * 2 * 0x400 + 2 * 0x400]
+        #BankSwitch bank * 2, val1 * 2, 2
 
 
     def Select1KVROM(self, val1, bank):
@@ -480,7 +497,7 @@ class CONSLOE(MMC, NES):
             #MemCopy VRAM(bank * &H400&), VROM(val1 * &H400&), &H400&
         else:
             pass
-            #MemCopy VRAM(bank * &H400&), VROM(val1 * &H400&), &H400&
+            self.PPU.VRAM[bank * 0x400: (bank + 1) * 0x400] = self.nesROM.VROM[val1 * 0x400 : val1 * 0x400 + 0x400]
 
 
     #'only switches banks when needed
@@ -585,6 +602,78 @@ class CONSLOE(MMC, NES):
         elif Address == 0xE001:
             MMC.irq_enable = True
 
+
+    def map1_write(self, Address  , value ):
+
+        bank_select = 0 #int16
+
+        if (value & 0x80) :
+            self.data[0] = self.data[0] | 0xC
+            self.accumulator = self.data[(Address // 0x2000) & 3]
+            self.sequence = 5
+        else:
+            if value & 1 : self.accumulator = self.accumulator | (2 ** sequence)
+            self.sequence = self.sequence + 1
+        
+
+        if (self.sequence == 5) :
+            self.data[(Address // 0x2000) & 3] = self.accumulator
+            self.sequence = 0
+            self.accumulator = 0
+
+            #'MirrorXor = pow2((data(0) And &H3) + 10)
+            
+            if (self.nesROM.PrgCount == 0x20) :# '/* 512k cart */'
+                bank_select = (self.data[1] & 0x10) * 2
+            else:# '/* other carts */'
+                bank_select = 0
+           
+            
+            if self.data[0] & 2 :# 'enable panning
+                NES.Mirroring = (self.data[0] & 1) ^ 1
+            else:# 'disable panning
+                NES.Mirroring = 2
+            
+            #DoMirror
+            #Select Case Mirroring
+            #Case 0
+            #    MirrorXor = &H400
+            #Case 1
+            #    MirrorXor = &H800
+            #Case 2
+            #    MirrorXor = 0
+            #End Select
+            
+            if (self.data[0] & 8) == 0 :# 'base boot select $8000?
+                self.reg8 = 4 * (self.data[3]& 15) + bank_select
+                self.regA = 4 * (self.data[3]& 15) + bank_select + 1
+                self.regC = 4 * (self.data[3]& 15) + bank_select + 2
+                self.regE = 4 * (self.data[3]& 15) + bank_select + 3
+                self.SetupBanks()
+            elif (self.data[0]& 4) :# '16k banks
+                self.reg8 = ((self.data[3]& 15) * 2) + bank_select
+                self.regA = ((self.data[3]& 15) * 2) + bank_select + 1
+                self.regC = 0xFE
+                self.regE = 0xFF
+                self.SetupBanks()
+            else: #'32k banks
+                self.reg8 = 0
+                self.regA = 1
+                self.regC = ((self.data[3] & 15) * 2) + bank_select
+                self.regE = ((self.data[3] & 15) * 2) + bank_select + 1
+                self.SetupBanks()
+            
+            
+            if (self.data[0]& 0x10) :# '4k
+                self.Select4KVROM(self.data[1], 0)
+                self.Select4KVROM(self.data[2], 1)
+            else:# '8k
+                self.Select8KVROM(self.data[1] // 2)
+            
+
+
+
+
 def JOYPAD_CHK(CPU):
     
     CPU.JOYPAD1.A_press(keyboard.is_pressed('k'))
@@ -677,7 +766,8 @@ def run(debug = False):
         del fc
     del fc
 if __name__ == '__main__':
-    run(True)
+    #run(True)
+    run(False)
 
         
 

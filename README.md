@@ -11,7 +11,7 @@ NES(FC) Emulator in Python 2.7 + jitclass
 
 #performance
 1. CPU: 5ms / frame
-2. PPU: 25~35ms / frame
+2. PPU: 15~35ms / frame
 
 try:
 nuitka --msvc=14.2 --module --show-progress --output-dir=out *.py
