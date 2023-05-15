@@ -6,5 +6,12 @@ NES(FC) Emulator in Python 2.7 + jitclass
 2. Limited graphics
 3. Limited sound support
 4. 1P control
-5. interpreted way to implement the instructions too slow . jitclass improve fps 5 to 30
+5. interpreted way to implement the instructions too slow. 
 6. support MAPPER in mapper...
+
+#performance
+1. CPU: 5ms / frame
+2. PPU: 25~35ms / frame
+
+try:
+nuitka --msvc=14.2 --module --show-progress --output-dir=out *.py
