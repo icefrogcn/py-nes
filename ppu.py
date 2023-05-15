@@ -11,7 +11,7 @@ from numba import jit,njit
 from numba import jitclass
 from numba import uint8,uint16
 
-from nes import NES
+
 from memory import Memory
 from ppu_reg import PPUREG, PPU_reg_type, PPUBIT, PPU_bit_type
 from ppu_memory import PPU_Memory
@@ -29,7 +29,8 @@ print('loading PPU CLASS')
            ('reg',PPU_reg_type),
            ('memory',PPU_memory_type),
            ('ROM',ROM_class_type),
-           ('Pal',uint8[:,:]), \
+           ('PatternTableTiles',uint8[:,:,:]),
+           ('Pal',uint8[:,:]), 
            ('FrameArray',uint8[:,:]),
            #('FrameBuffer',uint8[:,:,:]),
            ('Running',uint8),
@@ -51,6 +52,7 @@ class PPU(object):
         self.memory = PPU_Memory(memory)
         self.reg = PPUREG(self.memory, self.ROM)
 
+        self.PatternTableTiles = np.zeros((0x2000 >> 4, 8, 8),np.uint8)
         self.Pal        = pal
 
         self.FrameArray = np.zeros((720, 768),np.uint8)
@@ -188,12 +190,14 @@ class PPU(object):
         if self.CurrentLine == 239 :
             #self.Status = self.Status | 0x80#PPU_VBLANK_FLAG
             self.reg.PPUSTATUS_W(self.reg.PPUSTATUS | 0x80) #PPU_VBLANK_FLAG
-	    
+
+        if self.CurrentLine > self.SpriteRAM[0] + 8:
+            self.reg.PPUSTATUS_W(self.reg.PPUSTATUS | 0x40)#PPU_SPHIT_FLAG
+
         if self.Running == 0:
             if self.reg.PPUMASK & self.reg.bit.PPU_SPDISP_BIT == 0 :return
             if self.reg.PPUSTATUS & 0x40 :return #PPU_SPHIT_FLAG
-            if self.CurrentLine > self.SpriteRAM[0] + 8:
-                self.reg.PPUSTATUS_W(self.reg.PPUSTATUS | 0x40)#PPU_SPHIT_FLAG
+            
             return
 
         self.ScanlineSPHit[self.CurrentLine] =  1 if self.reg.PPUSTATUS & self.reg.bit.PPU_SPHIT_FLAG else 0
@@ -265,7 +269,7 @@ class PPU(object):
         #return
         if self.reg.PPUMASK & (self.reg.bit.PPU_SPDISP_BIT|self.reg.bit.PPU_BGDISP_BIT) == 0 :return
         
-        
+        self.PatternTableTiles = self.PatternTableArr(self.VRAM[0 : 0x2000])
 
         #NTnum = (self.loopy_v0 & 0x0FFF) >>10
         #NTnum = self.reg.PPUCTRL & self.reg.bit.PPU_NAMETBL_BIT
@@ -302,15 +306,21 @@ class PPU(object):
 
     def blitFrame(self):
         paintBuffer(self.FrameArray,self.Pal,self.Palettes)
-    
-    def RenderSprites(self):
-        #PatternTablesAddress = 0x1000 if self.Control1 & PPU_SPTBL_BIT and self.sp16 else 0
-        PatternTablesAddress,PatternTablesSize = (0x1000,0x1000) if self.reg.PPUCTRL & self.reg.bit.PPU_SPTBL_BIT and self.sp16 else (0 ,0x1000)
-        
-        PatternTable_Array = self.PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + PatternTablesSize])
 
+    @property    
+    def GET_PPU_SPTBL(self):
+        if self.sp16:
+            return 0x0
+        return 0x1000 if self.reg.PPU_SPTBL_BIT else 0x0
         
-        self.RenderSpriteArray(self.FrameArray, self.SpriteRAM, PatternTable_Array)
+    def RenderSprites(self):
+        
+        #PatternTablesAddress,PatternTablesSize = (0x1000,0x1000) if self.reg.PPUCTRL & self.reg.bit.PPU_SPTBL_BIT and self.sp16 else (0 ,0x1000)
+        #PatternTablesAddress = self.GET_PPU_SPTBL
+        #PatternTablesSize = 0x1000 if self.GET_PPU_SPTBL else 0x2000
+        #PatternTable_Array = self.PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + PatternTablesSize])
+        #PatternTable_Array = self.PatternTableArr(self.VRAM[0 : 0x2000])
+        self.RenderSpriteArray(self.FrameArray, self.SpriteRAM, self.PatternTableTiles)
          
 
     def RenderAttributeTables(self,offset):
@@ -331,59 +341,66 @@ class PPU(object):
 
         return PatternTable
 
+    @property
+    def PPU_BGTBL_OFFSET(self):
+        return self.reg.PPU_BGTBL_BIT << 8
+    @property
+    def PPU_BGTBL_TILE_OFFSET(self):
+        return self.reg.PPU_BGTBL_BIT << 4
+
     def RenderBG(self):
         
-        PatternTablesAddress = self.reg.PPU_BGTBL_BIT << 8 #PPU_BGTBL_BIT = 0x10
+        #PatternTablesAddress = self.PPU_BGTBL_OFFSET
         
-        PatternTable_Array = self.PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + 0x1000])
+        #PatternTable_Array = self.PatternTableArr(self.VRAM[PatternTablesAddress : PatternTablesAddress + 0x1000])
 
         if self.ROM.Mirroring == 1:
-            self.RenderNameTableH(PatternTable_Array, 0,1)
+            self.RenderNameTableH(0,1)
 
         elif self.ROM.Mirroring == 0 :
             
-            self.RenderNameTableV(PatternTable_Array, 0,2)
+            self.RenderNameTableV(0,2)
             
         elif self.ROM.Mirroring == 2:
-            self.RenderNameTables(PatternTable_Array, 0,1,2,3)
+            self.RenderNameTables(0,1,2,3)
         else:
-            self.RenderNameTables(PatternTable_Array, 0,1,2,3)
+            self.RenderNameTables(0,1,2,3)
 
             
     #@jit
-    def RenderNameTableH(self, PatternTables,nt0,nt1):
-        tempBuffer0 = self.NameTableArr(self.NameTables_data(nt0),PatternTables)
+    def RenderNameTableH(self, nt0,nt1):
+        tempBuffer0 = self.NameTableArr(self.NameTables_data(nt0))
         self.RenderNameTable(self.AttributeTables_data(nt0), tempBuffer0)
         
-        tempBuffer1 = self.NameTableArr(self.NameTables_data(nt1),PatternTables)
+        tempBuffer1 = self.NameTableArr(self.NameTables_data(nt1))
         self.RenderNameTable(self.AttributeTables_data(nt1), tempBuffer1)
         
         self.FrameArray[0:480,0:768] = np.row_stack((np.column_stack((tempBuffer0,tempBuffer1,tempBuffer0)),np.column_stack((tempBuffer0,tempBuffer1,tempBuffer0))))
 
     #@njit
-    def RenderNameTableV(self, PatternTables, nt0, nt2):
-        tempBuffer0 = self.NameTableArr(self.NameTables_data(nt0),PatternTables)
+    def RenderNameTableV(self, nt0, nt2):
+        tempBuffer0 = self.NameTableArr(self.NameTables_data(nt0))
         self.RenderNameTable(self.AttributeTables_data(nt0), tempBuffer0)
         
-        tempBuffer2 = self.NameTableArr(self.NameTables_data(nt2),PatternTables)
+        tempBuffer2 = self.NameTableArr(self.NameTables_data(nt2))
         self.RenderNameTable(self.AttributeTables_data(nt2), tempBuffer2)
         
         self.FrameArray[0:720,0:512] =  np.column_stack((np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0)),np.row_stack((tempBuffer0,tempBuffer2,tempBuffer0))))
 
-    def RenderNameTables(self, PatternTables,nt0,nt1,nt2,nt3):
+    def RenderNameTables(self,nt0,nt1,nt2,nt3):
             
         #tempBuffer0 = self.AttributeTableArr(AttributeTables_data(VRAM,nt0), NameTableArr(NameTables_data(VRAM,nt0),PatternTables))
         
-        tempBuffer0 = self.NameTableArr(self.NameTables_data(nt0),PatternTables)
+        tempBuffer0 = self.NameTableArr(self.NameTables_data(nt0))
         self.RenderNameTable(self.AttributeTables_data(nt0), tempBuffer0)
         #tempBuffer1 = self.AttributeTableArr(AttributeTables_data(VRAM,nt1), NameTableArr(NameTables_data(VRAM,nt1),PatternTables))
-        tempBuffer1 = self.NameTableArr(self.NameTables_data(nt1),PatternTables)
+        tempBuffer1 = self.NameTableArr(self.NameTables_data(nt1))
         self.RenderNameTable(self.AttributeTables_data(nt1), tempBuffer1)
         #tempBuffer2 = self.AttributeTableArr(AttributeTables_data(VRAM,nt2), NameTableArr(NameTables_data(VRAM,nt2),PatternTables))
-        tempBuffer2 = self.NameTableArr(self.NameTables_data(nt2),PatternTables)
+        tempBuffer2 = self.NameTableArr(self.NameTables_data(nt2))
         self.RenderNameTable(self.AttributeTables_data(nt2), tempBuffer2)
         #tempBuffer3 = self.AttributeTableArr(AttributeTables_data(VRAM,nt3), NameTableArr(NameTables_data(VRAM,nt3),PatternTables))
-        tempBuffer3 = self.NameTableArr(self.NameTables_data(nt3),PatternTables)
+        tempBuffer3 = self.NameTableArr(self.NameTables_data(nt3))
         self.RenderNameTable(self.AttributeTables_data(nt3), tempBuffer3)
 
         self.FrameArray[0:480,0:512] =  np.row_stack((np.column_stack((tempBuffer3,tempBuffer2)),np.column_stack((tempBuffer1,tempBuffer0))))
@@ -406,11 +423,15 @@ class PPU(object):
             
 
             
-            chr_index = SPRAM[spriteOffset + 1]
+            #chr_index = SPRAM[spriteOffset + 1]# + self.GET_PPU_SPTBL >> 4
             if self.sp16:
-                chr_index = chr_index ^ (chr_index & 1)
+                #chr_index = ((chr_index & 1)<< 7) + (chr_index ^ (chr_index & 1))
+                chr_index = ((SPRAM[spriteOffset + 1] & 1)<< 8) + ((SPRAM[spriteOffset + 1] & 0xFE))
+            else:
+                chr_index = SPRAM[spriteOffset + 1] + self.GET_PPU_SPTBL >> 4
+            
             chr_l = PatternTableArray[chr_index]
-            chr_h = PatternTableArray[(chr_index + 1) & 0xFF]
+            chr_h = PatternTableArray[chr_index + 1]
      
                 
             if SPRAM[spriteOffset + 2] & 0x40:
@@ -467,7 +488,7 @@ class PPU(object):
                     
         #return BG
 
-    def NameTableArr(self, NameTables, PatternTables):
+    def NameTableArr(self, NameTables):
         width = 8 * 32 if len(NameTables) > 0x1f else len(NameTables)  #256
         height = ((len(NameTables) - 1) / 32 + 1) * 8 #240
         ntbuffer = np.zeros((height + 1,width + 1), np.uint8)
@@ -475,7 +496,7 @@ class PPU(object):
             for col in range(height / 8):
                 if NameTables[col * 32 + row] == 0:
                     continue
-                ntbuffer[col << 3 :(col << 3) + 8 ,row  << 3: (row  << 3) + 8] = PatternTables[NameTables[col * 32 + row]]
+                ntbuffer[col << 3 :(col << 3) + 8 ,row  << 3: (row  << 3) + 8] = self.PatternTableTiles[NameTables[col * 32 + row] + self.PPU_BGTBL_TILE_OFFSET]
         
         return ntbuffer[0:height,0:width]
 

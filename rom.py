@@ -218,7 +218,7 @@ class nesROM(NES):
         self.ROM.VROM_8K_SIZE = self.VROM_8K_SIZE       
 
         
-        return NES
+        return self.ROM
         
     def GetPROM_SIZE(self):
         return self.data[0x4]

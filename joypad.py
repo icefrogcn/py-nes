@@ -30,6 +30,23 @@ class JOYPAD(object):
     def BUTTON_RELEASE(self):
         return 0x40
 
+    def A_press(self,pressed):
+        self.Joypad[0] = self.BUTTON_PRESS if pressed else self.BUTTON_RELEASE
+    def B_press(self,pressed):
+        self.Joypad[1] = self.BUTTON_PRESS if pressed else self.BUTTON_RELEASE
+    def SELECT_press(self,pressed):
+        self.Joypad[2] = self.BUTTON_PRESS if pressed else self.BUTTON_RELEASE
+    def START_press(self,pressed):
+        self.Joypad[3] = self.BUTTON_PRESS if pressed else self.BUTTON_RELEASE
+    def UP_press(self,pressed):
+        self.Joypad[4] = self.BUTTON_PRESS if pressed else self.BUTTON_RELEASE
+    def DOWN_press(self,pressed):
+        self.Joypad[5] = self.BUTTON_PRESS if pressed else self.BUTTON_RELEASE
+    def LEFT_press(self,pressed):
+        self.Joypad[6] = self.BUTTON_PRESS if pressed else self.BUTTON_RELEASE
+    def RIGTH_press(self,pressed):
+        self.Joypad[7] = self.BUTTON_PRESS if pressed else self.BUTTON_RELEASE
+
     def Joypad_Count_ZERO(self):
         self.Joypad_Count = 0
     

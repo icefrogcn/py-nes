@@ -13,8 +13,43 @@ from numba import types
 from nes import NES
 from memory import Memory
 
-#ChannelWrite = np.zeros(0x4,np.uint8)
+# Volume adjust
+# Internal sounds
+RECTANGLE_VOL	=0x0F0
+TRIANGLE_VOL	=0x130
+NOISE_VOL	=0x0C0
+DPCM_VOL	=0x0F0
+# Extra sounds
+VRC6_VOL	=0x0F0
+VRC7_VOL	=0x130
+FDS_VOL		=0x0F0
+MMC5_VOL	=0x0F0
+N106_VOL	=0x088
+FME7_VOL	=0x130
 
+SMF_EVENT_CONTROL =0xB0
+
+
+CpuClock = 1789772.5
+nRate	= 22050
+cycle_rate = int((CpuClock * 65536)/nRate)
+print 'cycle_rate:',cycle_rate
+#ChannelWrite = np.zeros(0x4,np.uint8)
+'''
+	//  0:Master
+	//  1:Rectangle 1
+	//  2:Rectangle 2
+	//  3:Triangle
+	//  4:Noise
+	//  5:DPCM
+	//  6:VRC6
+	//  7:VRC7
+	//  8:FDS
+	//  9:MMC5
+	// 10:N106
+	// 11:FME7
+'''
+nVolumeChannel = 0x10
 #APU
 spec = [('tones',float32[:]),
         ('volume',uint16[:]),
@@ -36,13 +71,13 @@ print('loading APU CLASS')
 class APU(object):
 
     def __init__(self,memory = Memory(), debug = False):
-        self.tones = np.zeros(0x4,np.float32)#[0] * 4
-        self.volume = np.zeros(0x4,np.uint16)#[0] * 4
+        self.tones = np.zeros(nVolumeChannel,np.float32)#[0] * 4
+        self.volume = np.zeros(nVolumeChannel,np.uint16)#[0] * 4
         #self.v = np.zeros(0x4,np.uint16)#[0] * 4
         #self.Channel = np.zeros(0x4,np.uint16)#[0] * 4
-        self.lastFrame = np.zeros(0x4,np.uint16)#[0] * 4
-        self.stopTones = np.zeros(0x4,np.uint8)#[0] * 4
-        self.ChannelWrite = np.zeros(0x4,np.uint8)#[0] * 4
+        self.lastFrame = np.zeros(nVolumeChannel,np.uint16)#[0] * 4
+        self.stopTones = np.zeros(nVolumeChannel,np.uint8)#[0] * 4
+        self.ChannelWrite = np.zeros(nVolumeChannel,np.uint8)#[0] * 4
         #self.SoundChannel = np.zeros(0x4,np.uint8)#np.zeros((0x4),dtype = "u1, f4, u1")
         
         #self.tonesBuffer = np.zeros(0x4,np.float32)#[0] * 4
@@ -63,13 +98,13 @@ class APU(object):
         self.doSound = 1
 
         self.vlengths = np.array([5, 127, 10, 1, 19, 2, 40, 3, 80, 4, 30, 5, 7, 6, 13, 7, 6, 8, 12, 9, 24, 10, 48, 11, 96, 12, 36, 13, 8, 14, 16, 15],np.uint8) # As Long
-
+        self.NoiseTP = np.array([4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068],np.uint16)
         'DF: powers of 2'
         self.pow2 = np.array([2**i for i in range(31)] + [-2147483648],np.int32) #*(31) #As Long
         #pow2 = [2**i for i in range(32)]#*(31) #As Long
         #self.pow2 +=  [-2147483648] #       pass
 
-    def pAPUinit(self):
+    #def pAPUinit(self):
         'Lookup table used by nester.'
         #fillArray vlengths, 
         self.midiout = rtmidi.MidiOut()
@@ -84,7 +119,7 @@ class APU(object):
 
         self.midiout.send_message([0xC0,80]) #'Square wave'
         self.midiout.send_message([0xC1,80]) #'Square wave'
-        self.midiout.send_message([0xC2,87]) #Triangle wave
+        self.midiout.send_message([0xC2,43]) #Triangle wave
         self.midiout.send_message([0xC3,127]) #Noise. Used gunshot. Poor but sometimes works.'
 
     @property
@@ -94,7 +129,7 @@ class APU(object):
         self.Sound[0x15] = value
     #@property
     def chk_SoundCtrl(self,ch):
-        return self.SoundCtrl & self.pow2[ch]
+        return self.SoundCtrl & (1 << ch)
     
     def ShutDown(self):
         if self.available_ports:
@@ -139,6 +174,10 @@ class APU(object):
             self.PlayTriangle(2)
             self.PlayNoise(3)
         else:
+            stopTone(0)
+            stopTone(1)
+            stopTone(2)
+            stopTone(3)
             self.ReallyStopTones()
             
 
@@ -149,7 +188,7 @@ class APU(object):
                 self.ToneOff(channel, self.tones[channel])
                 self.tones[channel] = 0
                 self.volume[channel] = 0
-            if self.doSound and tone >= 0  and v > 0 :
+            if self.doSound and tone > 0 and tone <= 127 and v > 0 :
                 self.volume[channel] = v
                 self.tones[channel] = tone
                 self.ToneOn(channel, tone, v * 8)
@@ -178,25 +217,25 @@ class APU(object):
             
     def PlayRect(self,ch):
         volume = self.Sound[ch * 4 + 0] & 15
-        frequency = self.Sound[ch * 4 + 2]  + (self.Sound[ch * 4 + 3] & 7) * 256
+        frequency = self.Sound[ch * 4 + 2]  + (self.Sound[ch * 4 + 3] & 7) * 256 + 1
         self.playfun(ch, frequency, volume)
    
     
     def PlayTriangle(self,ch):
-        volume = 6 #'triangle'
-        frequency = self.Sound[ch * 4 + 2]  + (self.Sound[ch * 4 + 3] & 7) * 256
-        self.playfun(ch, frequency, volume)
+        volume = 9 #'triangle'
+        frequency = self.Sound[ch * 4 + 2]  + (self.Sound[ch * 4 + 3] & 7) * 256 + 1
+        self.playfun(ch, frequency * 2, volume)
 
     def PlayNoise(self,ch):
         volume = 6 #'Noise'
-        frequency = (self.Sound[ch * 4 + 2] & 15) * 128
+        frequency = self.NoiseTP[(self.Sound[ch * 4 + 2] & 0xF)]
         self.playfun(ch, frequency, volume)
 
             
     def playfun(self, ch, frequency, volume):
         if self.chk_SoundCtrl :
             #volume = v #'Get volume'
-            length = self.vlengths[self.Sound[ch * 4 + 3] >> 3] #'Get length'
+            length = self.vlengths[self.Sound[ch * 4 + 3] >> 3] * 2#'Get length'
             if volume > 0 :
                 if frequency > 1 :
                     if self.ChannelWrite[ch] : #Ensures that a note doesn't replay unless memory written
@@ -259,16 +298,17 @@ class APU(object):
         pass
 
 #'Calculates a midi tone given an nes frequency.
-#'Frequency passed is actual interval in 1/65536's of a second (I hope)
-@jit
-def getTone(freq): #As Long
+@jit(uint8(uint16))
+def getTone(freq): 
         if freq <= 0:
             return 0
         
         #freq = 65536 / freq
-        freq = 111861 / (freq + 1)
-        t = math.log(freq / 8.176) * 17.31236   # 1 / math.log(1.059463) = 17.31236
+        #freq = 111861 / (freq + 1)
+        f = 1789772.5/(16.0 * (freq + 1))
+        #t = math.log(freq / 8.176) * 17.31236   # 1 / math.log(1.059463) = 17.31236
         
+        t = np.log2(f/440.0) * 12.0 + 69.0
         if t < 0:t = 0 
         if t > 127:t = 127 
 
@@ -434,8 +474,13 @@ if __name__ == '__main__':
     #apu.midiout.send_message([192,127])
     apu.midiout.send_message(note_on)
     time.sleep(0.5)
-    apu.midiout.send_message(note_off)
+    #apu.midiout.send_message(note_off)
 
+    #apu.midiout.send_message([0xB0, 65, 80])
+    #apu.midiout.send_message([0xB0, 65, 80])
+    #apu.midiout.send_message([0x93, 60, 112])
+    time.sleep(0.5)
+    #apu.midiout.send_message([0x83, 60, 0])
     
 
     #del midiout

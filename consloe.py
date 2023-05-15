@@ -1,8 +1,9 @@
 # -*- coding: UTF-8 -*-
-import os,re
+import os,shutil,re
 import traceback
 
 import time
+
 import datetime
 import threading
 import multiprocessing
@@ -27,8 +28,8 @@ from rom import get_Mapper_by_fn
 
 from cpu6502_opcodes import init6502
 
-import cpu6502
-from cpu6502 import cpu6502
+#import cpu6502
+#from cpu6502 import cpu6502
 
 
 from ppu import PPU
@@ -59,16 +60,23 @@ class CONSLOE(MMC, NES):
         self.memory = memory.Memory()
         self.debug = debug
         self.nesROM = nesROM()
-        
+
+        print print_now(),'init APU'
+        self.APU = APU(self.memory)
+        #self.APU.pAPUinit()
         self.JOYPAD1 = JOYPAD()
         self.JOYPAD2 = JOYPAD()
 
         #self.FrameBuffer = np.zeros((720, 768, 3),np.uint8)
                
         #self.CPURunning = cpu6502.CPURunning
-
+        
+    @property
+    def status(self):
+        return "PC:%d,clockticks:%d PPUSTATUS:%d,CurrLine:%d a:%d X:%d Y:%d S:%d p:%d opcode:%d " %self.CPU.status()
+    
     def LoadROM(self,filename):
-        self.NES = self.nesROM.LoadROM(filename)
+        self.ROM = self.nesROM.LoadROM(filename)
         
             
     def PowerON(self):
@@ -78,60 +86,70 @@ class CONSLOE(MMC, NES):
         self.ShutDown()
         #self.APU.ShutDown()
 
-        
+    def initMIDI(self):
+        pass
+
+    def Load_MAPPER_New(self):
+        cartridge = __import__('mappers.main',fromlist = ['MAPPER'])#['MAIN',MAIN_class_type])
+        MAPPER = cartridge.MAPPER(self.ROM, self.memory)
+
+        shutil.copyfile('mappers/mapper%d.py' %MAPPER.Mapper,'mappers/mapper.py' )  #set new MAPPER class
+            
+        new_MAPPER = __import__('mappers.mapper',fromlist = ['MAPPER'])
+            
+        return new_MAPPER.MAPPER(MAPPER)
+
+    def Load_MAPPER_Old(self):
+        shutil.copyfile('mappers/main.py','mappers/mapper.py' )  #set OLD MAPPER class
+
+        cartridge = __import__('mappers.mapper',fromlist = ['MAPPER'])#['MAIN',MAIN_class_type])
+        return cartridge.MAPPER(self.ROM, self.memory)
+
+    def import_CPU_class(self):
+        print print_now(),'init CPU'
+        fresh_pyc("cpu6502.pyc")
+        CPU = __import__('cpu6502',fromlist=['cpu6502'])
+        return CPU.cpu6502(self.memory, self.PPU, self.MAPPER, self.APU.ChannelWrite)#, #self.APU,)
+         
+
+    
     def StartingUp(self):
         init6502()
+        #PPU = __import__('ppu',fromlist = ['PPU'])
         print print_now(),'init PPU'
-        self.PPU = PPU(self.memory, self.nesROM.ROM)
+        self.PPU = PPU(self.memory, self.ROM)
         self.PPU.pPPUinit(self.PPU_Running,self.PPU_render,self.PPU_debug)
         #self.FrameBuffer = self.PPU.FrameBuffer
         
-        
-        #self.ChannelWrite = ChannelWrite
-        print print_now(),'init APU'
-        self.APU = APU(self.memory)
-        
-        self.APU.pAPUinit()
-
-        
-        
         print print_now(),'init MAPPER'
-        MAPPER = __import__('mappers')
-        cartridge = MAPPER.mapper.MAPPER(self.nesROM.ROM, self.memory)
-        #self.PPU.cartridge = cartridge
-        try:
 
+        try:
             
-            self.MAPPER = eval('MAPPER.mapper%d.MAPPER(cartridge)' %(self.nesROM.Mapper))
-            #self.MAPPER = cartridge
-            print print_now(),'init CPU'
-            self.CPU = cpu6502(self.memory, self.PPU, self.MAPPER, self.APU.ChannelWrite, #self.APU, 
-                               self.JOYPAD1, self.JOYPAD2)
-        
+            self.MAPPER = self.Load_MAPPER_New()
+            self.CPU = self.import_CPU_class()
+            self.CPU.SET_NEW_MAPPER_TRUE()
+            
             self.MAPPER.reset()
             
-            #self.CPU.debug = debug
-            self.CPU.SET_NEW_MAPPER()
-            print print_now(),"NEW MAPPER process"
-            NES.newmapper_debug = 1
             LoadNES = 1
+            print print_now(),"NEW MAPPER process"
+
+
         except:
             print (traceback.print_exc())
-            NES.newmapper_debug = 0
             
-            self.MAPPER = cartridge
-            print print_now(),'init CPU'
-            self.CPU = cpu6502(self.memory, self.PPU, self.MAPPER, self.APU.ChannelWrite, #self.APU, 
-                               self.JOYPAD1, self.JOYPAD2)
-        
-            LoadNES = self.MapperChoose(NES.Mapper)
-            print print_now(),'OLD MapperWrite'
+       
+            self.MAPPER = self.Load_MAPPER_Old()
+            self.CPU = self.import_CPU_class()
+            self.CPU.SET_NEW_MAPPER_FALSE()
                 
             if( NES.VROM_8K_SIZE ):
                 self.Select8KVROM(0)
-            else:
-                pass
-        
+                
+            LoadNES = self.MapperChoose(NES.Mapper)
+            print print_now(),'OLD MapperWrite'
+
+
         print self.CPU.PRGRAM
         print type(self.CPU.PRGRAM)
 
@@ -141,10 +159,7 @@ class CONSLOE(MMC, NES):
 
  
         print print_now(),"Successfully loaded %s" %self.nesROM.filename
-        self.CPU.reset6502()
-        print print_now(),"6502 reset:",self.CPU.status()
-        #self.cpu6502.PPU.MirrorXor = self.ROM.MirrorXor # As Long 'Integer
-
+        
         self.start = time.time()
         self.totalFrame = 0
 
@@ -152,24 +167,7 @@ class CONSLOE(MMC, NES):
         self.PowerON()
         self.ScreenShow()
 
-        '''
-        self.midiout = rtmidi.MidiOut()
-        self.available_ports = self.midiout.get_ports()
-        print self.available_ports
-        #self.APU.midiout = self.midiout
-        #self.APU.available_ports = self.available_ports
-        #print self.midiout.getportcount()
-        
-        if self.available_ports:
-            self.midiout.open_port(0)
-        else:
-            self.midiout.open_virtual_port("My virtual output")
 
-        self.midiout.send_message([0xC0,80]) #'Square wave'
-        self.midiout.send_message([0xC1,80]) #'Square wave'
-        self.midiout.send_message([0xC2,74]) #Triangle wave
-        self.midiout.send_message([0xC3,127]) #Noise. Used gunshot. Poor but sometimes works.'
-'''
 
         
         print print_now(),"The number of CPU is:",str(multiprocessing.cpu_count())
@@ -178,41 +176,81 @@ class CONSLOE(MMC, NES):
 
             
         self.Running = 1
-        print print_now(),'First runing jitclass need compiling about 10-60 seconds...ooh...wait...'
-        while self.Running:
-            #self.CPU.exec6502()
-            Frames = self.CPU.exec6502()
-            #print dir(cpu_process)
-            #cpu_process.start()
-            if Frames:
-                #print self.CPU.PRGRAM[2][0:0x16]
-                #print self.APU.Sound[0:0x16]
-                #print self.CPU.Sound[0:0x16]
-                
-                if self.PPU_Running and self.PPU_render:self.blitFrame()
 
-                self.APU.updateSounds(Frames)
+        self.CPU.reset6502()
+        print '6502 reset:', self.status 
+        
+        Waiting_thread = threading.Thread(target = self.Waiting_compiling)
+        Waiting_thread.setDaemon(True)
+        Waiting_thread.start()
+        fps_thread = threading.Thread(target = self.ShowFPS)
+        fps_thread.setDaemon(True)
+        fps_thread.start()
+        #if self.PPU_Running and self.PPU_render:
+
+        #    blit_thread.start()
+
+        blit_delay = 0
+        self.Frames = 0
+        wish_fps = 60
+        start = time.time()
+        while self.Running:
+            #t = threading.Thread(target = self.CPU.exec6502)
+            #t.start()
+            FrameFlag = self.CPU.exec6502()
+            #self.CPU.exec6502()
+            #blit_delay = time.time()
+
+            if FrameFlag & self.CPU.FrameSound:
+                self.APU.updateSounds(self.CPU.Frames)
+
+            
+            if FrameFlag & self.CPU.FrameRender:
+                #Frames = self.CPU.Frames
+                if self.CPU.Frames % wish_fps == 0 or blit_delay/((self.CPU.Frames % wish_fps) + 1) <= (1.000/wish_fps):
+                    self.blitFrame()
+                    #blit_thread = threading.Thread(target = self.blitFrame)
+                    #blit_thread.setDaemon(True)
+                    ##blit_thread.start()
+                    #blit_thread.join()
+                    self.Frames += 1
+                    #blit_delay = (time.time() - start)
+                #else:
+                    #blit_delay -= 0.02#1 - (self.CPU.Frame % wish_fps) / wish_fps
+
+                blit_delay += (time.time() - start)
+                
+
+                #while time.time() - start < 0.02:
+                #    continue
+                if self.CPU.Frames % wish_fps == wish_fps - 1:
+                    blit_delay = 0
+                start = time.time()
+                #if blit_delay > 0.02:
+
+                
+
+                
+                #if self.CPU.Frames % 60 == 0 or (blit_delay > 0.02 and blit_delay < 0.04):
+                    #R_S = time.time()
+                    #self.blitFrame()
+                    #blit_thread.start()
+                #    self.Frames += 1
+                #    blit_delay = time.time() - start
+                #   start = time.time()
+                    #print time.time() - R_S
+                #else:
+                    #while time.time() - start < 0.016:
+                    #    continue
+                #    blit_delay += 0.02
                 #self.playSounds()
 
-
-                self.ShowFPS(Frames)
-                self.CPU.FrameFlag = 0
-
-                if keyboard.is_pressed('0'):
-                    print "turnoff"
-                    self.Running = 0
-
+                #self.ShowFPS(self.CPU.Frames)
                 
-                self.JOYPAD1.Joypad[2] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('v') else self.JOYPAD1.BUTTON_RELEASE
-                self.JOYPAD1.Joypad[3] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('b') else self.JOYPAD1.BUTTON_RELEASE
-                
-                self.JOYPAD1.Joypad[1] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('j') else self.JOYPAD1.BUTTON_RELEASE
-                self.JOYPAD1.Joypad[0] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('k') else self.JOYPAD1.BUTTON_RELEASE
-                
-                self.JOYPAD1.Joypad[4] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('w') else self.JOYPAD1.BUTTON_RELEASE
-                self.JOYPAD1.Joypad[5] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('s') else self.JOYPAD1.BUTTON_RELEASE
-                self.JOYPAD1.Joypad[6] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('a') else self.JOYPAD1.BUTTON_RELEASE
-                self.JOYPAD1.Joypad[7] = self.JOYPAD1.BUTTON_PRESS if keyboard.is_pressed('d') else self.JOYPAD1.BUTTON_RELEASE
+                #self.CPU.FrameFlag_ZERO()
+
+                self.Running = JOYPAD_CHK(self.CPU)
+
 
 
                 
@@ -224,67 +262,57 @@ class CONSLOE(MMC, NES):
             
 
         self.PowerOFF()
-
-    def playSounds(self):
-        #print "Playing"
-        #self.APU.Frames += 1
-        self.APU.set_FRAMES(self.totalFrame)
-        if self.available_ports and self.APU.doSound :
-            self.APU.ReallyStopTones()
-            if self.APU.PlayRect(0):
-                self.midiout.send_message([0x90 + 0,self.APU.tonesBuffer[0],self.APU.volume[0]])
-            #else:
-            #    self.midiout.send_message([0x80 + 0,self.APU.tonesBuffer[0],self.APU.volume[0]])
-            if self.APU.PlayRect(1):
-                self.midiout.send_message([0x90 + 1,self.APU.tonesBuffer[1],self.APU.volume[1]])
-            #else:
-            #    self.midiout.send_message([0x80 + 1,self.APU.tonesBuffer[1],self.APU.volume[1]])
-            if self.APU.PlayTriangle(2):
-                self.midiout.send_message([0x90 + 2,self.APU.tonesBuffer[2],self.APU.volume[2]])
-            #else:
-            #    self.midiout.send_message([0x80 + 2,self.APU.tonesBuffer[2],self.APU.volume[2]])
-            if self.APU.PlayNoise(3):
-                self.midiout.send_message([0x90 + 3,self.APU.tonesBuffer[3],self.APU.volume[3]])
-            #else:
-            #    self.midiout.send_message([0x80 + 3,self.APU.tonesBuffer[3],self.APU.volume[3]])
-            
-            '''for ch in range(4):
-                
-                if self.APU.chk_SoundCtrl(ch):
-                    #self.midiout.send_message([0x90 + ch,self.APU.tonesBuffer[ch],self.APU.volume[ch]])
-                    #print self.APU.frameBuffer[ch] , self.SoundON[ch], 0x90 + ch,self.APU.tonesBuffer[ch],self.APU.volume[ch],self.APU.lastFrame[ch]
-                    if self.APU.frameBuffer[ch] > 0 and self.SoundON[ch] == 0:
-                        self.midiout.send_message([0x90 + ch,self.APU.tonesBuffer[ch],self.APU.volume[ch]])
-                        self.APU.frameBuffer_decrement(ch)
-                        self.SoundON[ch] = 1
-            
-                    else:
-                        self.SoundON[ch] = 0
-                        self.midiout.send_message([0x80 + ch, self.APU.tones[ch], 0])
-                else:
-                    pass
-                    #self.midiout.send_message([0x80 + ch, self.APU.tonesBuffer[ch], 0])
-                    
-                    
-                if self.APU.stopTones[ch] == 0:
-                    pass
-                    self.midiout.send_message([0x80 + ch, self.APU.tones[ch], 0])
-                '''    
-            #self.midiout.send_message(self.APU.SoundBuffer[1])
-            #self.midiout.send_message(self.APU.SoundBuffer[2])
-            #self.midiout.send_message(self.APU.SoundBuffer[3])
-            
+    
+    def cpu_run(self):
+        self.CPU.exec6502()
+    
+    def Waiting_compiling(self):
+        print print_now(),'First runing jitclass, compiling is a very time-consuming process...'
+        print print_now(),'take about 240 seconds (i3-6100U)...ooh...waiting...'
+        start = time.time()
+        while self.CPU.Frames == 0:
+            print print_now(),'jitclass is compiling...',((time.time()- start) / 240) * 100, '%'
+            #print '6502:',self.status 
+            time.sleep(5)
+        print print_now(),'jitclass compiled...'
+        
+        #while self.CPU.FrameFlag & self.CPU.FrameRender:
+        #    self.blitFrame()
+        #    print time.time()-start
+        #    start = time.time()
+        #print print_now(),'Waiting_compiling  compiled...'
+        
+    
+    
+    
             
     def blitFrame(self):
-        self.FrameBuffer = paintBuffer(self.PPU.FrameArray,self.PPU.Pal,self.PPU.Palettes)
-        
-        if self.debug == False and self.PPU_render:
-            pass
-            self.blitScreen()
-            self.blitPal()
-        else:
-            self.blitPatternTable()
-            self.blitPal()
+        if self.PPU_Running:
+            if self.CPU.Frames:
+                if self.PPU_render:
+                    self.PPU.RenderFrame()
+                    self.FrameBuffer = paintBuffer(self.PPU.FrameArray,self.PPU.Pal,self.PPU.Palettes)
+                    if self.debug:
+                        pass
+                        self.blitPatternTable()
+                        self.blitPal()
+                    else:
+                        self.blitScreen()
+                        self.blitPal()
+
+    def blitFrame_thread(self):
+
+            print 'blitFrame: ',self.CPU.Frames
+            if self.CPU.Frames:
+                self.FrameBuffer = paintBuffer(self.PPU.FrameArray,self.PPU.Pal,self.PPU.Palettes)
+                
+                if self.debug == False and self.PPU_render:
+                    pass
+                    self.blitScreen()
+                    self.blitPal()
+                else:
+                    self.blitPatternTable()
+                    self.blitPal()
             
     def ScreenShow(self):
         if self.PPU_Running == 0:
@@ -328,20 +356,25 @@ class CONSLOE(MMC, NES):
         cv2.imshow("PatternTable0", self.FrameBuffer)
         cv2.waitKey(1)
         
-    def ShowFPS(self,nowFrames):
-            #print (nowFrames - self.totalFrame)/(time.time() - self.start)
-            #print type((nowFrames - self.totalFrame)/(time.time() - self.start))
-        if time.time() - self.start > 4:
-            FPS =  'FPS: %d' %((nowFrames - self.totalFrame) >> 2)  # 
-            if self.CPU.PPU.debug == False:
-                    
-                cv2.setWindowTitle('Main',"%s %d %d %d"%(FPS,self.CPU.PPU.CurrentLine,self.CPU.PPU.vScroll,self.CPU.PPU.HScroll))
-            else:
-                print FPS,self.CPU.PPU.render,self.CPU.PPU.tilebased
-            self.start = time.time()
+    def ShowFPS(self):
+        while self.CPU.Frames == 0:
+            pass
             
-
-            self.totalFrame = nowFrames
+        start = time.time()
+        totalFrame = 0
+        while self.Running:
+            time.sleep(2)
+            nowFrames = self.CPU.Frames
+            duration = time.time() - start
+            #if duration > 4:
+            start = time.time()
+            FPS =  'FPS: %d / %d' %(int((nowFrames - totalFrame) / duration), int(self.Frames/duration))  # 
+            #cv2.setWindowTitle('Main',"%s %d %d %d"%(FPS,self.CPU.PPU.CurrentLine,self.CPU.PPU.vScroll,self.CPU.PPU.HScroll))
+            self.Frames = 0
+            print FPS, nowFrames, self.CPU.FrameFlag,self.APU.ChannelWrite #,self.CPU.PPU.render,self.CPU.PPU.tilebased
+                
+            
+            totalFrame = nowFrames
         
     def MapperChoose(self,MapperType):
         MapperChoose = 1
@@ -552,6 +585,23 @@ class CONSLOE(MMC, NES):
         elif Address == 0xE001:
             MMC.irq_enable = True
 
+def JOYPAD_CHK(CPU):
+    
+    CPU.JOYPAD1.A_press(keyboard.is_pressed('k'))
+    CPU.JOYPAD1.B_press(keyboard.is_pressed('j'))
+    CPU.JOYPAD1.SELECT_press(keyboard.is_pressed('v'))
+    CPU.JOYPAD1.START_press(keyboard.is_pressed('b'))
+    CPU.JOYPAD1.UP_press(keyboard.is_pressed('w'))
+    CPU.JOYPAD1.DOWN_press(keyboard.is_pressed('s'))
+    CPU.JOYPAD1.LEFT_press(keyboard.is_pressed('a'))
+    CPU.JOYPAD1.RIGTH_press(keyboard.is_pressed('d'))
+    if keyboard.is_pressed('0'):
+        print "turnoff"
+        return 0
+    else:
+        return 1
+    
+
 @njit
 def MaskBankAddress(bank, PrgCount):
         if bank >= PrgCount * 2 :
@@ -602,11 +652,15 @@ def show_choose(ROMS_INFO):
     print "---------------"
     print 'choose a number as a selection.'
 
+def fresh_pyc(pyc):
+    if '.pyc' in pyc:
+        if os.path.exists(pyc):os.remove(pyc)
+
 def run(debug = False):
     ROMS = roms_list()
     ROMS_INFO = get_roms_mapper(ROMS)
-    fc = CONSLOE(debug)
     while True:
+        fc = CONSLOE(debug)
         show_choose(ROMS_INFO)
         gn = input("choose a number: ")
         print gn
@@ -620,7 +674,8 @@ def run(debug = False):
         fc.PPU_render = 1
         fc.PPU_debug = debug
         fc.StartingUp()
-        
+        del fc
+    del fc
 if __name__ == '__main__':
     run(True)
 

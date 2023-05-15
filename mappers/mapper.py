@@ -1,138 +1,162 @@
 # -*- coding: UTF-8 -*-
-
-import sys
-sys.path.append("..")
-
-from numba import jit,jitclass
-from numba import int8,uint8,int16,uint16
-import numpy as np
+from numba import jit,jitclass,objmode
+from numba import int8,uint8,int16,uint16,uint32
 import numba as nb
+import numpy as np
 
-from rom import ROM,ROM_class_type
-from memory import Memory
+from main import MAPPER,MAIN_class_type
 
-__all__ = ['MAPPER']
-#MAPPER
-
-@jitclass([('ROM',ROM_class_type), \
-           ('PROM_SIZE_array',uint8[:]), \
-           ('VROM_SIZE_array',uint8[:]), \
-           ('PRGRAM',uint8[:,:]), \
-           ('VRAM',uint8[:]), \
-           ('PROM',uint8[:]), \
-           ('VROM',uint8[:]) \
-           ])
+spec = [('cartridge',MAIN_class_type),
+        ('reg',uint8[:]),
+        ('last_addr',uint8),
+        ('patch',uint8),
+        ('wram_patch',uint8),
+        ('wram_bank',uint8),
+        ('wram_count',uint8),
+        ('shift',uint16),       
+        ('regbuf',uint16)        
+        ]
+@jitclass(spec)
 class MAPPER(object):
-    
-    def __init__(self, ROM = ROM(), memory = Memory()):
 
-        self.ROM = ROM
 
-        self.PROM_SIZE_array = ROM.PROM_SIZE_array
-        self.VROM_SIZE_array = ROM.VROM_SIZE_array
-      
-        self.PRGRAM = memory.RAM
-        self.VRAM = memory.VRAM
-        self.PROM = ROM.PROM
-        self.VROM = ROM.VROM
+    def __init__(self,cartridge = MAPPER()):
+        self.cartridge = cartridge
+
+        self.reg = np.zeros(0x4, np.uint8)
+        self.last_addr = 0
+        self.patch = 0
+        self.wram_patch = 0
+        self.wram_bank = 0
+        self.wram_count = 0
+        
+        self.shift = 0
+        self.regbuf = 0
 
     @property
     def Mapper(self):
-        return self.ROM.Mapper
-    @property
-    def Mirroring(self):
-        return self.ROM.Mirroring
-    @property
-    def MirrorXor(self):
-        return self.ROM.MirrorXor
+        return 1
 
-    
-    def MirrorXor_W(self,value):
-        self.ROM.MirrorXor_W(value)    
-    def Mirroring_W(self,value):
-        self.ROM.Mirroring_W(value)  
-        
     def reset(self):
-        if self.Mapper == 2:
-            self.SetPROM_32K_Bank(0, 1, self.ROM.PROM_8K_SIZE - 2, self.ROM.PROM_8K_SIZE - 1)
+        self.reg[0] = 0x0C
+        #reg[1] = reg[2] = reg[3] = 0
+        #shift = regbuf = 0
 
-
-    def Write(self,addr,data):#$8000-$FFFF Memory write
-        if self.Mapper == 2:
-            self.SetPROM_16K_Bank(4, data )
-
-    def Read(self,address):#$8000-$FFFF Memory read(Dummy)
-        return self.PRGRAM[addr>>13,address & 0x1FFF]
-
-    def ReadLow(self,address):#$4100-$7FFF Lower Memory read
-        if( address >= 0x6000 ):
-            return self.PRGRAM[3, address & 0x1FFF]
-        return address>>8
-
-    def WriteLow(self,address,data): #$4100-$7FFF Lower Memory write
-        #$6000-$7FFF WRAM
-        if( address >= 0x6000 ) :
-            self.PRGRAM[3, address & 0x1FFF] = data
-    
-    def ExRead(self,address): #$4018-$40FF Extention register read/write
-        return 0
-    
-    def ExWrite(self, address, data ):
-        pass
-    def Clock(self, cycle ):
-        pass
-    
-
-    def SetPROM_8K_Bank(self, page, bank):
-
-        bank %= self.ROM.PROM_8K_SIZE
-        self.PRGRAM[page] = self.PROM[0x2000 * bank : 0x2000 * bank + 0x2000]
-
-        
+        if( self.cartridge.PROM_16K_SIZE < 32 ):
             
-    def SetPROM_16K_Bank(self,page, bank):
-        self.SetPROM_8K_Bank( page+0, bank*2+0 )
-        self.SetPROM_8K_Bank( page+1, bank*2+1 )
+            self.cartridge.SetPROM_32K_Bank(0, 1, self.cartridge.PROM_8K_SIZE-2, self.cartridge.PROM_8K_SIZE-1)
+        else:
+            self.cartridge.SetPROM_16K_Bank( 4, 0 )
+            self.cartridge.SetPROM_16K_Bank( 6, 16-1 )
+
+            self.patch = 1
+            
+        return 1
+    def WriteLow(self,address,data):
+        self.cartridge.WriteLow(address,data)
+
+    def ReadLow(self,address):
+        return self.cartridge.ReadLow(address)
+    
+    def Write(self,address,data):#$8000-$FFFF Memory write
+        if( self.patch != 1 ):
+            if((address & 0x6000) != (self.last_addr & 0x6000)):
+                self.shift = 0
+                self.regbuf = 0
+            self.last_addr = address
         
-    def SetPROM_32K_Bank0(self,bank):
-        self.SetPROM_8K_Bank( 4, bank*4 + 0 )
-        self.SetPROM_8K_Bank( 5, bank*4 + 1 )
-        self.SetPROM_8K_Bank( 6, bank*4 + 2 )
-        self.SetPROM_8K_Bank( 7, bank*4 + 3 )
+        if( data & 0x80 ):
+            self.shift = 0
+            self.regbuf = 0
+            self.reg[0] |= 0x0C
+            
+        if( data & 0x01 ):
+            self.regbuf |= 1
+            self.regbug = self.regbuf << self.shift
+            
+        self.shift += 1
+        if( self.shift < 5 ):return
 
-    def SetPROM_32K_Bank(self,bank0,bank1,bank2,bank3):
-        self.SetPROM_8K_Bank( 4, bank0 )
-        self.SetPROM_8K_Bank( 5, bank1 )
-        self.SetPROM_8K_Bank( 6, bank2 )
-        self.SetPROM_8K_Bank( 7, bank3 )
-	
+        addr = (address & 0x7FFF) >> 13
+        self.reg[addr] = self.regbuf
+
+        self.shift = 0
+        self.regbuf = 0
+
+        if self.patch != 1:
+            with objmode():
+                print "#For Normal Cartridge"
+            if addr == 0:
+                if( self.reg[0] & 0x02 ):
+                    self.cartridge.Mirroring = 1 if( self.reg[0] & 0x01 ) else 0
+                else:
+                    self.cartridge.Mirroring = 3 if( self.reg[0] & 0x01 ) else 2
+            elif addr == 1:
+                if self.cartridge.VROM_1K_SIZE:
+                    if( self.reg[0] & 0x10 ):
+                        self.cartridge.SetVROM_4K_Bank( 0, self.reg[1] )
+                    else:
+                        self.cartridge.SetVROM_8K_Bank(self.reg[1] >> 1 )
+            elif addr == 2:
+                if self.cartridge.VROM_1K_SIZE:
+                    if( self.reg[0] & 0x10 ):
+                        self.cartridge.SetVROM_4K_Bank(4, self.reg[2] )
+                        
+            elif addr == 3:
+                if (self.reg[0] & 0x08):
+                    if( self.reg[0] & 0x04 ):
+                        self.cartridge.SetPROM_16K_Bank( 4, self.reg[3] )
+                        self.cartridge.SetPROM_16K_Bank( 6, self.cartridge.PROM_16K_SIZE - 1 )
+                    else:
+                        self.cartridge.SetPROM_16K_Bank( 6, self.reg[3] )
+                        self.cartridge.SetPROM_16K_Bank( 4, 0)
+                else:
+                    self.cartridge.SetPROM_32K_Bank0( self.reg[3]>>1 )
 
 
-    def SetCRAM_1K_Bank(self, page, bank):
-        #print "Set CRAM"
-        bank &= 0x1F
-        CRAM = 0x8000 + 0x0400 * bank
-        self.VRAM[page*0x400:page*0x400 + 0x400] = self.VROM[CRAM:CRAM + 0x400]
+        else:
+            with objmode():
+                print "For 512K/1M byte Cartridge"
+            if addr == 0:
+                if( self.reg[0] & 0x02 ):
+                    self.cartridge.Mirroring = 1 if( self.reg[0] & 0x01 ) else 0
+                else:
+                    self.cartridge.Mirroring = 3 if( self.reg[0] & 0x01 ) else 2
+            if self.cartridge.VROM_1K_SIZE:
+                    if( self.reg[0] & 0x10 ):
+                        self.cartridge.SetVROM_4K_Bank(0, self.reg[1] )
+                        self.cartridge.SetVROM_4K_Bank(4, self.reg[2] )
+                    else:
+                        self.cartridge.SetVROM_8K_Bank(self.reg[1] >> 1 )
+            else:
+                with objmode():
+                    print "Romancia"
 
-    def SetVRAM_1K_Bank(self, page, bank):
-        #print "Set VRAM"
-        bank &= 0x3
-        VRAM = 0x0400 * bank + 4096
-        self.VRAM[page*0x400:page*0x400 + 0x400] = self.VROM[VRAM:VRAM + 0x400]
+            PROM_BASE = ((self.reg[1] & 0x10) << 1) if( self.cartridge.PROM_16K_SIZE >= 32 ) else 0
 
-    def SetVROM_8K_Bank(self,bank):
-        for i in range(8):
-            self.SetVROM_1K_Bank( i, bank * 8 + i )
+            if(self.reg[0] & 0x08):
+                if( self.reg[0] & 0x04 ):
+                    self.cartridge.SetPROM_16K_Bank(4, PROM_BASE + ((self.reg[3] & 0x0F) * 2) )
+                    if( self.cartridge.PROM_16K_SIZE >= 32 ):
+                        self.cartridge.SetPROM_16K_Bank( 6, PROM_BASE - 1 )
+                else:
+                    self.cartridge.SetPROM_16K_Bank( 6, PROM_BASE + ((self.reg[3] & 0x0F) * 2) )
+                    if( self.cartridge.PROM_16K_SIZE >= 32 ):
+                        self.cartridge.SetPROM_16K_Bank( 4, PROM_BASE - 1 )
+            else:
+                self.cartridge.SetPROM_32K_Bank0((self.reg[3] & 0xF) + PROM_BASE)
+                        
+		
+                        
+        
+        self.cartridge.MirrorXor_W(((self.cartridge.Mirroring + 1) % 3) * 0x400)
 
-    def SetVROM_1K_Bank(self, page, bank):
-        bank %= self.ROM.VROM_1K_SIZE
-        self.VRAM[page*0x400:page*0x400 + 0x400] = self.VROM[0x0400*bank:0x0400*bank + 0x400]
-
-MAPPER_class_type = nb.deferred_type()
-MAPPER_class_type.define(MAPPER.class_type.instance_type)
+MAPPER_type = nb.deferred_type()
+MAPPER_type.define(MAPPER.class_type.instance_type)
 
 if __name__ == '__main__':
-    MAPPER = MAPPER()
+    mapper = MAPPER()
+
 
 
 

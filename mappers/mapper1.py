@@ -1,45 +1,62 @@
 # -*- coding: UTF-8 -*-
-import sys
-sys.path.append("..")
+from numba import jit,jitclass,objmode
+from numba import int8,uint8,int16,uint16,uint32
+import numba as nb
+import numpy as np
+
+from main import MAPPER,MAIN_class_type
+
+spec = [('cartridge',MAIN_class_type),
+        ('reg',uint8[:]),
+        ('last_addr',uint8),
+        ('patch',uint8),
+        ('wram_patch',uint8),
+        ('wram_bank',uint8),
+        ('wram_count',uint8),
+        ('shift',uint16),       
+        ('regbuf',uint16)        
+        ]
+@jitclass(spec)
+class MAPPER(object):
 
 
+    def __init__(self,cartridge = MAPPER()):
+        self.cartridge = cartridge
 
-#MAPPER
-from mapper import MAPPER
+        self.reg = np.zeros(0x4, np.uint8)
+        self.last_addr = 0
+        self.patch = 0
+        self.wram_patch = 0
+        self.wram_bank = 0
+        self.wram_count = 0
+        
+        self.shift = 0
+        self.regbuf = 0
 
-from nes import NES
-
-
-class MAPPER(MAPPER,NES):
-
-    last_addr = 0
-    patch = 0
-    wram_patch = 0
-    wram_bank = 0
-    wram_count = 0
-
-    reg = [0] * 4
-
-    shift = 0
-    regbuf = 0
-
+    @property
+    def Mapper(self):
+        return 1
 
     def reset(self):
         self.reg[0] = 0x0C
         #reg[1] = reg[2] = reg[3] = 0
         #shift = regbuf = 0
 
-        if( NES.PROM_16K_SIZE < 32 ):
+        if( self.cartridge.PROM_16K_SIZE < 32 ):
             
-            self.SetPROM_32K_Bank(0, 1, NES.PROM_8K_SIZE-2, NES.PROM_8K_SIZE-1)
+            self.cartridge.SetPROM_32K_Bank(0, 1, self.cartridge.PROM_8K_SIZE-2, self.cartridge.PROM_8K_SIZE-1)
         else:
-            self.SetPROM_16K_Bank( 4, 0 )
-            self.SetPROM_16K_Bank( 6, 16-1 )
+            self.cartridge.SetPROM_16K_Bank( 4, 0 )
+            self.cartridge.SetPROM_16K_Bank( 6, 16-1 )
 
             self.patch = 1
             
         return 1
+    def WriteLow(self,address,data):
+        self.cartridge.WriteLow(address,data)
 
+    def ReadLow(self,address):
+        return self.cartridge.ReadLow(address)
     
     def Write(self,address,data):#$8000-$FFFF Memory write
         if( self.patch != 1 ):
@@ -58,81 +75,84 @@ class MAPPER(MAPPER,NES):
             self.regbug = self.regbuf << self.shift
             
         self.shift += 1
-	if( self.shift < 5 ):
-		return 
-	addr = (address & 0x7FFF) >> 13
-	self.reg[addr] = self.regbuf
+        if( self.shift < 5 ):return
 
-	self.shift = 0
+        addr = (address & 0x7FFF) >> 13
+        self.reg[addr] = self.regbuf
+
+        self.shift = 0
         self.regbuf = 0
-	
+
         if self.patch != 1:
-            print "#For Normal Cartridge"
+            with objmode():
+                print "#For Normal Cartridge"
             if addr == 0:
                 if( self.reg[0] & 0x02 ):
-                    NES.Mirroring = 1 if( self.reg[0] & 0x01 ) else 0
+                    self.cartridge.Mirroring = 1 if( self.reg[0] & 0x01 ) else 0
                 else:
-                    NES.Mirroring = 3 if( self.reg[0] & 0x01 ) else 2
+                    self.cartridge.Mirroring = 3 if( self.reg[0] & 0x01 ) else 2
             elif addr == 1:
-                if NES.VROM_1K_SIZE:
+                if self.cartridge.VROM_1K_SIZE:
                     if( self.reg[0] & 0x10 ):
-                        self.SetVROM_4K_Bank( 0, self.reg[1] )
+                        self.cartridge.SetVROM_4K_Bank( 0, self.reg[1] )
                     else:
-                        self.SetVROM_8K_Bank(self.reg[1] >> 1 )
+                        self.cartridge.SetVROM_8K_Bank(self.reg[1] >> 1 )
             elif addr == 2:
-                if NES.VROM_1K_SIZE:
+                if self.cartridge.VROM_1K_SIZE:
                     if( self.reg[0] & 0x10 ):
-                        self.SetVROM_4K_Bank(4, self.reg[2] )
+                        self.cartridge.SetVROM_4K_Bank(4, self.reg[2] )
                         
             elif addr == 3:
                 if (self.reg[0] & 0x08):
                     if( self.reg[0] & 0x04 ):
-                        self.SetPROM_16K_Bank( 4, self.reg[3] )
-                        self.SetPROM_16K_Bank( 6, NES.PROM_16K_SIZE-1 )
+                        self.cartridge.SetPROM_16K_Bank( 4, self.reg[3] )
+                        self.cartridge.SetPROM_16K_Bank( 6, self.cartridge.PROM_16K_SIZE - 1 )
                     else:
-                        self.SetPROM_16K_Bank( 6, self.reg[3] )
-                        self.SetPROM_16K_Bank( 4, 0)
+                        self.cartridge.SetPROM_16K_Bank( 6, self.reg[3] )
+                        self.cartridge.SetPROM_16K_Bank( 4, 0)
                 else:
-                    self.SetPROM_32K_Bank0( self.reg[3]>>1 )
+                    self.cartridge.SetPROM_32K_Bank0( self.reg[3]>>1 )
 
 
         else:
-            print "For 512K/1M byte Cartridge"
-	    if addr == 0:
+            with objmode():
+                print "For 512K/1M byte Cartridge"
+            if addr == 0:
                 if( self.reg[0] & 0x02 ):
-                    NES.Mirroring = 1 if( self.reg[0] & 0x01 ) else 0
+                    self.cartridge.Mirroring = 1 if( self.reg[0] & 0x01 ) else 0
                 else:
-                    NES.Mirroring = 3 if( self.reg[0] & 0x01 ) else 2
-            if NES.VROM_1K_SIZE:
+                    self.cartridge.Mirroring = 3 if( self.reg[0] & 0x01 ) else 2
+            if self.cartridge.VROM_1K_SIZE:
                     if( self.reg[0] & 0x10 ):
-                        self.SetVROM_4K_Bank( 0, self.reg[1] )
-                        self.SetVROM_4K_Bank(4, self.reg[2] )
+                        self.cartridge.SetVROM_4K_Bank(0, self.reg[1] )
+                        self.cartridge.SetVROM_4K_Bank(4, self.reg[2] )
                     else:
-                        self.SetVROM_8K_Bank(self.reg[1] >> 1 )
+                        self.cartridge.SetVROM_8K_Bank(self.reg[1] >> 1 )
             else:
-                print "Romancia"
+                with objmode():
+                    print "Romancia"
 
-            PROM_BASE = 0;
-            if( NES.PROM_16K_SIZE >= 32 ) :
-		PROM_BASE = (self.reg[1] & 0x10) << 1
+            PROM_BASE = ((self.reg[1] & 0x10) << 1) if( self.cartridge.PROM_16K_SIZE >= 32 ) else 0
 
             if(self.reg[0] & 0x08):
                 if( self.reg[0] & 0x04 ):
-                    self.SetPROM_16K_Bank(4, PROM_BASE + ((self.reg[3] & 0x0F) * 2) )
-		    if( NES.PROM_16K_SIZE >= 32 ):
-                        self.SetPROM_16K_Bank( 6, PROM_BASE - 1 )
+                    self.cartridge.SetPROM_16K_Bank(4, PROM_BASE + ((self.reg[3] & 0x0F) * 2) )
+                    if( self.cartridge.PROM_16K_SIZE >= 32 ):
+                        self.cartridge.SetPROM_16K_Bank( 6, PROM_BASE - 1 )
                 else:
-                    self.SetPROM_16K_Bank( 6, PROM_BASE + ((self.reg[3] & 0x0F) * 2) );
-		    if( NES.PROM_16K_SIZE >= 32 ):
-                        self.SetPROM_16K_Bank( 4, PROM_BASE - 1 )
+                    self.cartridge.SetPROM_16K_Bank( 6, PROM_BASE + ((self.reg[3] & 0x0F) * 2) )
+                    if( self.cartridge.PROM_16K_SIZE >= 32 ):
+                        self.cartridge.SetPROM_16K_Bank( 4, PROM_BASE - 1 )
             else:
-                self.SetPROM_32K_Bank0((self.reg[3] & 0xF) + PROM_BASE)
+                self.cartridge.SetPROM_32K_Bank0((self.reg[3] & 0xF) + PROM_BASE)
                         
 		
                         
         
-        NES.MirrorXor = ((NES.Mirroring + 1) % 3) * 0x400
+        self.cartridge.MirrorXor_W(((self.cartridge.Mirroring + 1) % 3) * 0x400)
 
+MAPPER_type = nb.deferred_type()
+MAPPER_type.define(MAPPER.class_type.instance_type)
 
 if __name__ == '__main__':
     mapper = MAPPER()

@@ -1,16 +1,24 @@
 # -*- coding: UTF-8 -*-
 
 from numba import jit,jitclass
-from mapper import MAPPER_class_type
+from numba import int8,uint8,int16,uint16,uint32
+import numba as nb
+import numpy as np
 
-@jitclass([('cartridge',MAPPER_class_type)])
+from main import MAPPER, MAIN_class_type
+
+
+spec = [('cartridge',MAIN_class_type)        
+        ]
+@jitclass(spec)
 class MAPPER(object):
 
-    def __init__(self,cartridge):
+    def __init__(self,cartridge=MAPPER()):
          self.cartridge = cartridge
-
+    @property
     def Mapper(self):
-        return self.cartridge.ROM.Mapper
+        return 0
+    
     def reset(self):
         self.cartridge.SetVROM_8K_Bank(0)
 
@@ -22,7 +30,16 @@ class MAPPER(object):
             self.cartridge.SetPROM_32K_Bank( 0,1,2,3 )
         #print "RESET SUCCESS MAPPER ", self.Mapper
 
+    def Write(self,address,data):
+        pass
+    def ReadLow(self,address):#$4100-$7FFF Lower Memory read
+        return self.cartridge.ReadLow(address)
 
+    def WriteLow(self,address,data):
+        self.cartridge.WriteLow(address,data)
+
+MAPPER_type = nb.deferred_type()
+MAPPER_type.define(MAPPER.class_type.instance_type)
 
 
 

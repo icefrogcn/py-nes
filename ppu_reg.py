@@ -287,9 +287,9 @@ class PPUREG(object):
     #@property
     def OAMDMA_W(self,value):
         addr = value << 8
-        for i in range(0x100):
-            temp = self.PRGRAM[0,addr + i]
-            self.SpriteRAM[i] = temp#self.PRGRAM[0,value * 0x100:value * 0x100 + 0x100]
+        self.SpriteRAM[0:0x100] = self.PRGRAM[0,value * 0x100:value * 0x100 + 0x100]
+        #for i in range(0x100):
+        #    self.SpriteRAM[i] = self.PRGRAM[0,addr + i]
 
 PPU_reg_type = nb.deferred_type()
 PPU_reg_type.define(PPUREG.class_type.instance_type)

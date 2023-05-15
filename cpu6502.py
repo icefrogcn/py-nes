@@ -1,7 +1,7 @@
 # -*- coding: UTF-8 -*-
 
 import time
-from numba import jit,jitclass
+from numba import jit,jitclass,objmode
 from numba import int8,uint8,int16,uint16,uint32
 import numpy as np
 import numba as nb
@@ -22,7 +22,7 @@ from mmc import MMC
 from apu import APU#,APU_type
 from ppu import PPU,PPU_type
 from joypad import JOYPAD,JOYPAD_type
-from mappers.mapper import MAPPER,MAPPER_class_type
+from mappers.mapper import MAPPER,MAPPER_type
 
 
 C_FLAG = 0x01	#	// 1: Carry
@@ -44,12 +44,12 @@ class Memory(object):
     def __init__(self, memory = memory.Memory()):
         self.RAM = memory.RAM
         self.PRGRAM = self.RAM
-        #self.bank0 = self.PRGRAM[0]#[0]*2048 #As Byte ' RAM 
-        #self.bank6 = self.PRGRAM[3]#[0]*8192 #As Byte ' SaveRAM 
-        #self.bank8 = self.PRGRAM[4]#[0]*8192 #As Byte '8-E are PRG-ROM
-        #self.bankA = self.PRGRAM[5]#[0]*8192 #As Byte
-        #self.bankC = self.PRGRAM[6]#[0]*8192 #As Byte
-        #self.bankE = self.PRGRAM[7]#[0] * 8192 #As Byte
+        #self.bank0 = self.PRGRAM[0] #  RAM 
+        #self.bank6 = self.PRGRAM[3] #  SaveRAM 
+        #self.bank8 = self.PRGRAM[4] #  8-E are PRG-ROM
+        #self.bankA = self.PRGRAM[5] # 
+        #self.bankC = self.PRGRAM[6] # 
+        #self.bankE = self.PRGRAM[7] # 
 
     def Read(self,address):
         bank = address >> 13
@@ -91,7 +91,7 @@ cpu_spec = [('PC',uint16),
             #('APU',APU_type),
             ('ChannelWrite',uint8[:]),
             #('SoundChannel',uint8[:]),
-            ('MAPPER',MAPPER_class_type),
+            ('MAPPER',MAPPER_type),
             #('ChannelWrite',uint8[:]),
             ('JOYPAD1',JOYPAD_type),
             ('JOYPAD2',JOYPAD_type),
@@ -164,8 +164,10 @@ class cpu6502(object):
         self.instructions = instruction
         self.Ticks = Ticks
 
-    def SET_NEW_MAPPER(self):
+    def SET_NEW_MAPPER_TRUE(self):
         self.NewMapperWriteFlag = 1
+    def SET_NEW_MAPPER_FALSE(self):
+        self.NewMapperWriteFlag = 0
     @property
     def GET_NEW_MAPPER(self):
         return self.NewMapperWriteFlag
@@ -178,6 +180,9 @@ class cpu6502(object):
     def debug(self):
         return 0
 
+    def FrameFlag_ZERO(self):
+        self.FrameFlag = 0
+
        
     def implied6502(self):
         return
@@ -189,22 +194,49 @@ class cpu6502(object):
         
 
     def status(self):
-        return self.PC,self.clockticks6502,self.PPU.reg.PPUSTATUS,self.PPU.CurrentLine#,"a:%d X:%d Y:%d S:%d p:%d" %(self.a,self.X,self.Y,self.S,self.p),self.opcode
+        return self.PC,self.clockticks6502,self.PPU.reg.PPUSTATUS,self.PPU.CurrentLine,self.a,self.X,self.Y,self.S,self.p,self.opcode
 
     def log(self,*args):
         #print self.debug
         if self.debug:
             print args
-    
+    @property
+    def FrameRender(self):
+        return np.uint8(0x1)
+    @property
+    def FrameSound(self):
+        return np.uint8(0x2)
+
+    @property
+    def ttime(self):
+        with objmode(time1='f8'):
+            time1 = time.time()
+        return time1
+
     def exec6502(self):
 
         #exec6502new(self)
+        #fps = 0
+        start = self.ttime
         
         while self.Running:
+            #if self.ttime - start < 0.016:
+            #    continue
+            #start = self.ttime
+            #if self.Frames and self.Frames % 60 == 0:
+                #with objmode():
+                    #print "cppu:",self.Frames
+            if self.FrameFlag & self.FrameRender:
+                pass
+                self.FrameFlag &= ~self.FrameRender
+                #continue
+                return self.FrameRender
 
-            if self.FrameFlag:
-                return self.Frames
-            
+            if self.FrameFlag & self.FrameSound:
+                self.FrameFlag &= ~self.FrameSound
+                #continue
+                return self.FrameSound
+                
             if self.MapperWriteFlag:
                 return 0
                 
@@ -214,11 +246,13 @@ class cpu6502(object):
 
             #self.instruction_dic.get(self.instructions[self.opcode])()
             self.exec_opcode()
-
+            #if self.PPU.CurrentLine ==49:print self.status()
             if self.clockticks6502 > self.maxCycles1:
                 self.Scanline()
 
-            
+            #if time.time()-last >= 1:
+            #    fps = self.Frames - fps
+            #    self.FrameFlag = 1
 
 
     def exec_opcode(self):
@@ -296,7 +330,10 @@ class cpu6502(object):
                 #if self.MAPPER.Clock(self.clockticks6502):self.irq6502()
                 #self.log("Scanline:",self.status()) ############################
 
-                
+                if self.PPU.CurrentLine >0 :
+                    pass
+                    #print 'curli: ',self.status()
+                        
                 self.PPU.RenderScanline()
 
                     
@@ -309,7 +346,7 @@ class cpu6502(object):
                     #self.log("CurrentLine:",self.status()) ############################
                     if self.PPU.CurrentLine == 240 :
                         pass
-                        if self.PPU.render:self.PPU.RenderFrame()
+                        #if self.PPU.render:self.PPU.RenderFrame()
 
                         #self.APU.set_FRAMES()#updateSounds()
                            #realframes = realframes + 1
@@ -324,7 +361,8 @@ class cpu6502(object):
 
                 if self.PPU.CurrentLine == 0:
                     self.Frames += 1
-
+                if self.PPU.CurrentLine in (0,131):
+                    self.FrameFlag |= self.FrameSound
                     #self.APU.updateSounds()
 
                 if self.PPU.CurrentLine == 258:
@@ -334,10 +372,13 @@ class cpu6502(object):
                 
                 if self.PPU.CurrentLine == 262:
                     #self.log("FRAME:",self.status()) ###########################
+
+                    #self.PPU.RenderFrame()
                     
                     self.PPU.CurrentLine_ZERO()
-
-                    self.FrameFlag = 1
+                    
+                    #if self.Frames % 60 == 0:
+                    self.FrameFlag |= self.FrameRender
                     
                     self.PPU.reg.PPUSTATUS_W(0)
                     
@@ -366,7 +407,9 @@ class cpu6502(object):
         #_sum = self.a
         _sum = (self.a + temp_value) & 0xFF
         _sum = (_sum + self.saveflags) & 0xFF
+        
         self.p = (self.p | 0x40) if (_sum > 0x7F) or (_sum < -0x80) else (self.p & 0xBF)
+        #self.p = (self.p | 0x40) if (_sum > 0xFF) or (_sum < 0x0) else (self.p & 0xBF)
       
         _sum = self.a + (temp_value + self.saveflags)
         self.p = (self.p | 0x1) if (_sum > 0xFF)  else (self.p & 0xFE)
@@ -467,7 +510,7 @@ class cpu6502(object):
         self.PC += 1
         'savepc = savepc & 0xFF'
     def zp6502(self):
-        self.savepc = self.Read6502(self.PC)
+        self.savepc = self.Read6502(self.PC) &0xFF
         self.PC += 1
 
 
@@ -1074,6 +1117,7 @@ class cpu6502(object):
         elif addr == 0x14:
             #print 'DF: changed gameImage to bank0. This should work'
             pass
+            self.PPU.Write(address,value)
             #self.PPU.SpriteRAM = self.PRGRAM[0][value * 0x100:value * 0x100 + 0x100]#self.bank0[value * 0x100:value * 0x100 + 0x100]
             #print self.PPU.SpriteRAM
         elif addr == 0x16:
@@ -1274,9 +1318,14 @@ def b1(value):
     for i in range(2):
         value = 333 #& 0xFF
         value &= 0xFF
+@jit(nopython=True)
+def ttime():
+        with objmode(time1='f8'):
+            time1 = time.time()
+        return time1
 
 if __name__ == '__main__':
-    cpu_ram = Memory()
+    #cpu_ram = Memory()
     cpu = cpu6502()
     #cpu.testspeed()
     

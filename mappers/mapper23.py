@@ -1,16 +1,29 @@
 # -*- coding: UTF-8 -*-
 
 from numba import jit,jitclass
-from mapper import MAPPER_class_type
+from numba import int8,uint8,int16,uint16,uint32
+import numba as nb
+import numpy as np
 
-#@jitclass([('cartridge',MAPPER_class_type)])
+from main import MAPPER,MAIN_class_type
+
+spec = [('cartridge',MAIN_class_type),
+        ('reg',uint8[:]),
+        ('irq_enable',uint8),
+        ('irq_counter',uint8),
+        ('irq_latch',uint8),
+        ('irq_clock',uint16),
+        ('irq_occur',uint8),
+        ('addrmask',uint16)        
+        ]
+@jitclass(spec)
 class MAPPER(object):
 
 
-    def __init__(self,cartridge):
+    def __init__(self,cartridge = MAPPER()):
         self.cartridge = cartridge
 
-        self.reg = [0] * 9
+        self.reg = np.zeros(0x9, np.uint8)
         self.irq_enable = 0
         self.irq_counter = 0
         self.irq_latch = 0
@@ -22,17 +35,15 @@ class MAPPER(object):
 
     @property
     def Mapper(self):
-        return self.cartridge.ROM.Mapper
+        return 23
          
     def reset(self):
+        for i in range(8):
+            self.reg[i] = i
 
-	for i in range(8) :
-	    self.reg[i] = i
-
-	self.reg[8] = 0
-
+        self.reg[8] = 0
         self.cartridge.SetPROM_32K_Bank(0, 1, self.cartridge.ROM.PROM_8K_SIZE-2, self.cartridge.ROM.PROM_8K_SIZE-1 )
-	self.cartridge.SetVROM_8K_Bank(0)
+        self.cartridge.SetVROM_8K_Bank(0)
 	
         return 1
 
@@ -59,7 +70,7 @@ class MAPPER(object):
                 if data == 0:self.cartridge.Mirroring_W(1)
                 elif data == 1:self.cartridge.Mirroring_W(2)
                 elif data == 2:self.cartridge.Mirroring_W(3) #VRAM_MIRROR4L
-                else:self.cartridge.Mirroring = 4 #VRAM_MIRROR4H
+                else:self.cartridge.Mirroring_W(4) #VRAM_MIRROR4H
                 #print "Mirroring",NES.Mirroring
                 self.cartridge.MirrorXor_W(((self.cartridge.Mirroring + 1) % 3) * 0x400)
                 
@@ -118,6 +129,11 @@ class MAPPER(object):
                         self.irq_counter += 1
             if( self.irq_occur ):
                 return True
+
+
+MAPPER_type = nb.deferred_type()
+MAPPER_type.define(MAPPER.class_type.instance_type)
+
 
 if __name__ == '__main__':
     mapper = MAPPER()
