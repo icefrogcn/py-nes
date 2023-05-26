@@ -16,7 +16,10 @@ from rom import ROM,ROM_class_type
 
 #PPU REGISTER
 
-print('loading PPU REGISTER INFO CLASS')
+
+PPU_BGTBL_BIT = 0x10
+PPU_SPTBL_BIT = 0x08
+
 @jitclass([('ver',uint8)])
 class PPUBIT(object): 
     def __init__(self):
@@ -106,7 +109,7 @@ print('loading PPU REGISTER CLASS')
            ('VRAM',uint8[:]), \
            ('SpriteRAM',uint8[:]), \
            ('Palettes',uint8[:]), \
-           ('PRGRAM',uint8[:,:]) 
+           ('RAM',uint8[:,:]) 
            ])
 class PPUREG(object):
     def __init__(self, memory = PPU_Memory(), ROM = ROM()):
@@ -118,7 +121,7 @@ class PPUREG(object):
         self.Palettes = self.memory.Palettes
         
         self.ROM = ROM
-        self.PRGRAM = self.memory.PRGRAM
+        self.RAM = self.memory.PRGRAM
         self.reg[9] = 1
 
     def read(self,address):
@@ -139,7 +142,8 @@ class PPUREG(object):
         elif addr == 0x01:
             self.PPUMASK_W(value)
         elif addr == 0x02:
-            self.PPU7_Temp_W(value)
+            pass
+            #self.PPU7_Temp_W(value)
         elif addr == 0x03:
             self.OAMADDR_W(value)
         elif addr == 0x04:
@@ -169,11 +173,11 @@ class PPUREG(object):
 
     @property
     def PPU_BGTBL_BIT(self):
-        return self.PPUCTRL & self.bit.PPU_BGTBL_BIT
+        return self.PPUCTRL & PPU_BGTBL_BIT
         
     @property
     def PPU_SPTBL_BIT(self):
-        return self.PPUCTRL & self.bit.PPU_SPTBL_BIT
+        return self.PPUCTRL & PPU_SPTBL_BIT
         
     @property
     def PPU_NAMETBL_BIT(self):
@@ -187,6 +191,7 @@ class PPUREG(object):
         
     @property
     def PPUSTATUS(self):        #2002
+        #ret = self.reg[2]
         ret = (self.PPU7_Temp & 0x1F) | self.reg[2]
         if ret & 0x80:
             self.reg[2] &= 0x60 #PPU_SPHIT_FLAG + PPU_SPMAX_FLAG
@@ -194,6 +199,8 @@ class PPUREG(object):
         
     def PPUSTATUS_W(self,value):
         self.reg[2] = value
+    def PPUSTATUS_ZERO(self):
+        self.reg[2] = 0
         
         
     @property
@@ -204,8 +211,11 @@ class PPUREG(object):
         
     @property
     def OAMDATA(self):          #2004
+        data = self.PPU7_Temp
+        self.reg[8] = self.SpriteRAM[self.reg[3]]
         self.reg[3] += 1
-        return self.SpriteRAM[self.reg[3]]
+        self.reg[3] &= 0xFF
+        return data
     def OAMDATA_W(self,value):
         self.SpriteRAM[self.OAMADDR] = value
         self.reg[3] = (self.reg[3] + 1) & 0xFF
@@ -226,7 +236,7 @@ class PPUREG(object):
         return self.reg[12]
 
     def PPUSCROLL_W(self,value):#2005
-        if self.reg[9]:
+        if self.ScrollToggle:
             self.reg[10] = value
         else:
             self.reg[11] = value
@@ -236,17 +246,18 @@ class PPUREG(object):
     @property
     def PPUADDR(self):          #2006
         return self.reg[6]
+    
     def PPUADDR_W(self,value):
         if self.reg[9]:
-            self.reg[12] = value * 0x100
+            self.reg[12] = value << 8
         else:
-            self.reg[6] = self.reg[12] + value
+            self.reg[6] = self.reg[12] | value
         self.ScrollToggle_W()
         #self.reg[6] = value
         
     @property
-    def PPUDATA(self):          #2007
-        data = self.reg[8]
+    def PPUDATA(self):          #2007 R
+        data = self.PPU7_Temp
         addr = self.reg[6] & 0x3FFF
         self.reg[6] += 32 if self.reg[0] & 0x04 else 1
         if(addr >= 0x3000):
@@ -260,18 +271,27 @@ class PPUREG(object):
         
         return data
     
-    def PPUDATA_W(self,value):
-        self.reg[8] = value
+    def PPUDATA_W(self,value):  #2007 W
+        self.PPU7_Temp_W(value)
         self.reg[6] &= 0x3FFF
-        if self.reg[6] >= 0x3F00:
-            self.Palettes[self.reg[6] & 0x1F] = value
-            if self.reg[6] & 3 == 0 and value:
-                self.Palettes[(self.reg[6] & 0x1F) ^ 0x10] = value
+        if self.PPUADDR >= 0x3F00:
+            value &= 0x3F
+            if self.PPUADDR & 0xF == 0:
+                self.Palettes[0x0] = self.Palettes[0x10] = value
+            elif self.PPUADDR & 0x10 == 0:
+                self.Palettes[self.PPUADDR & 0xF] = value #BG
+            else:
+                self.Palettes[self.PPUADDR & 0x1F] = value #SP
+            self.Palettes[0x04] = self.Palettes[0x08] = self.Palettes[0x0C] = self.Palettes[0x00]
+            self.Palettes[0x10] = self.Palettes[0x14] = self.Palettes[0x18] = self.Palettes[0x1C] = self.Palettes[0x00]
+            #self.Palettes[self.PPUADDR & 0x1F] = value
+            #if self.PPUADDR & 3 == 0 and value:
+            #    self.Palettes[(self.PPUADDR & 0x1F) ^ 0x10] = value
         else:
-            self.VRAM[self.reg[6]] = value
-            if (self.reg[6] & 0x3000) == 0x2000:
-                self.VRAM[self.reg[6] ^ self.ROM.MirrorXor] = value
-            self.VRAM[self.reg[6]] = value
+            self.VRAM[self.PPUADDR] = value
+            if (self.PPUADDR & 0x3000) == 0x2000:
+                self.VRAM[self.PPUADDR ^ self.ROM.MirrorXor] = value
+            #self.VRAM[self.PPUADDR] = value
         
         self.reg[6] += 32 if self.reg[0] & 0x04 else 1
                                         #PPU_INC32_BIT
@@ -287,9 +307,9 @@ class PPUREG(object):
     #@property
     def OAMDMA_W(self,value):
         addr = value << 8
-        self.SpriteRAM[0:0x100] = self.PRGRAM[0,value * 0x100:value * 0x100 + 0x100]
+        self.SpriteRAM[0:0x100] = self.RAM[0,value * 0x100:value * 0x100 + 0x100]
         #for i in range(0x100):
-        #    self.SpriteRAM[i] = self.PRGRAM[0,addr + i]
+            #self.SpriteRAM[i] = self.RAM[0,addr + i]
 
 PPU_reg_type = nb.deferred_type()
 PPU_reg_type.define(PPUREG.class_type.instance_type)
