@@ -24,7 +24,10 @@ from cpu_memory import CPU_Memory,CPU_Memory_type
 #from apu import APU#,APU_type
 from ppu import PPU,PPU_type
 from joypad import JOYPAD,JOYPAD_type
+from mappers.main import *
 from mappers.mapper import MAPPER,MAPPER_type
+
+
 '''
 n_map = 0
 
@@ -64,6 +67,7 @@ FETCH_CYCLES = 8
 HDrawCycles = 1024
 HBlankCycles = 340
 
+
 cpu_spec = [('PC',uint16),
             ('A',uint8),
             ('X',uint8),
@@ -81,6 +85,7 @@ cpu_spec = [('PC',uint16),
             ('emul_cycles',uint64),
             ('base_cycles',uint64),
             ('TOTAL_cycles',uint32),
+            ('DMA_cycles',uint32),
             ('opcode',uint8),
             ('STACK',uint8[:]),
             ('ZN_Table',uint8[:]),
@@ -95,6 +100,7 @@ cpu_spec = [('PC',uint16),
             ('FrameFlag',uint8),
             ('Frames',uint32),
             ('PPU',PPU_type),
+            ('RenderMethod',uint8),
             ('ChannelWrite',uint8[:]),
             ('MAPPER',MAPPER_type),
             ('JOYPAD',JOYPAD_type),
@@ -142,7 +148,7 @@ class cpu6502(object):
         self.exec_cycles = 0
         self.opcode = 0
 
-        self.base_cycles = self.emul_cycles = 0
+        self.base_cycles = self.emul_cycles = self.DMA_cycles = 0
 
         self.ZN_Table = np.zeros(256,dtype = np.uint8)
         self.ZN_Table[0] = Z_FLAG
@@ -172,11 +178,14 @@ class cpu6502(object):
         self.Frames = 0
 
         self.PPU = PPU
+        
         #self.APU = APU
         self.ChannelWrite = ChannelWrite
         
         self.MAPPER = MAPPER
         self.JOYPAD = JOYPAD
+
+        self.RenderMethod = self.MAPPER.RenderMethod
         
         
         self.Running = 1
@@ -538,6 +547,9 @@ class cpu6502(object):
     @property
     def nmibasecount(self):
         return 0
+
+    def DMA(self,cycles):
+        self.DMA_cycles += cycles
     
     def NMI(self):
         self.INT_pending |= NMI_FLAG;
@@ -807,52 +819,91 @@ class cpu6502(object):
             if self.MapperWriteFlag:
                 return self.FrameFlag
 
+            if self.PPU.CurrentLine in (0,131):
+                self.FrameFlag |= self.FrameSound
+                        
+            if( self.RenderMethod != TILE_RENDER ):
+                if self.PPU.CurrentLine == 0:
+                    if( self.RenderMethod < POST_RENDER ):
+                        self.EmulationCPU(ScanlineCycles)
+                        if self.MAPPER.HSync( self.PPU.CurrentLine ):self.IRQ_NotPending()
+                    else:
+                        self.EmulationCPU(HDrawCycles)
+                        if self.MAPPER.HSync( self.PPU.CurrentLine ):self.IRQ_NotPending()
+                        self.EmulationCPU(FETCH_CYCLES*32)
+                        self.EmulationCPU( FETCH_CYCLES*10 + 4 )
+                    
+                elif self.PPU.CurrentLine < 240:
+                    if( self.RenderMethod < POST_RENDER ):
+                        if( self.RenderMethod == POST_ALL_RENDER ):
+                            self.EmulationCPU(ScanlineCycles)
+                        self.PPU.RenderScanline()
+                        if( self.RenderMethod == PRE_ALL_RENDER ):
+                            self.EmulationCPU(ScanlineCycles )
+                            
+                        if self.MAPPER.HSync( self.PPU.CurrentLine ):self.IRQ_NotPending()
+                    else:
+                        if( self.RenderMethod == POST_RENDER ):
+                            self.EmulationCPU(HDrawCycles)
+                        self.PPU.RenderScanline()
 
-            if self.PPU.CurrentLine == 0:
-                self.EmulationCPU(ScanlineCycles)
-                #mapper->HSync( scanline )
-                #self.EmulationCPU(FETCH_CYCLES*32)
-                #self.EmulationCPU( FETCH_CYCLES*10 + 4 )
-                
-            elif self.PPU.CurrentLine < 240:
-                self.EmulationCPU(ScanlineCycles)#POST_ALL_RENDER
-                self.PPU.RenderScanline()
-                #self.EmulationCPU(ScanlineCycles )#PRE_ALL_RENDER
-                #mapper->HSync( scanline )
-                if self.PPU.CurrentLine in (0,131):
-                    self.FrameFlag |= self.FrameSound
-                
-                
-            elif self.PPU.CurrentLine == 240:
-                #mapper->VSync()
-                self.EmulationCPU(ScanlineCycles)
-                #mapper->HSync( scanline )
-                self.Frames += 1
-                
-            elif self.PPU.CurrentLine <= 261: #VBLANK
+                        if( self.RenderMethod == PRE_RENDER ):
+                            self.EmulationCPU(HDrawCycles)
+
+                        if self.MAPPER.HSync( self.PPU.CurrentLine ):self.IRQ_NotPending()
+                        self.EmulationCPU(FETCH_CYCLES*32)
+                        self.EmulationCPU(FETCH_CYCLES*10 + 4 )
 
                     
-                if self.PPU.CurrentLine == 261:
-                    self.PPU.VBlankEnd()
+                elif self.PPU.CurrentLine == 240:
+                    #mapper->VSync()
+                    if( self.RenderMethod == POST_RENDER ):
+                        self.EmulationCPU(ScanlineCycles)
+                        if self.MAPPER.HSync( self.PPU.CurrentLine ):self.IRQ_NotPending()
+                    else:
+                        self.EmulationCPU(HDrawCycles)
+                        if self.MAPPER.HSync( self.PPU.CurrentLine ):self.IRQ_NotPending()
+                        self.EmulationCPU(HDrawCycles)
+                    
+                    self.Frames += 1
+                    
+                elif self.PPU.CurrentLine <= 261: #VBLANK
 
-                if self.PPU.CurrentLine == 241:
-                    self.PPU.VBlankStart()
-                    self.EmulationCPU_BeforeNMI(4*12)
-                    if self.PPU.reg.PPUCTRL & 0x80:
-                        self.NMI()
-                        self.EmulationCPU(ScanlineCycles-(4*12))
-                else:
-                    self.EmulationCPU(ScanlineCycles)
+                        
+                    if self.PPU.CurrentLine == 261:
+                        self.PPU.VBlankEnd()
+                        self.FrameFlag |= self.FrameRender
 
-                #mapper->HSync( scanline )
+                    if( self.RenderMethod == POST_RENDER ):
+                        if self.PPU.CurrentLine == 241:
+                            self.PPU.VBlankStart()
+                            self.EmulationCPU_BeforeNMI(4*12)
+                            if self.PPU.reg.PPUCTRL & 0x80:
+                                self.NMI()
+                            self.EmulationCPU(ScanlineCycles-(4*12))
+                        else:
+                            self.EmulationCPU(ScanlineCycles)
 
+                        if self.MAPPER.HSync( self.PPU.CurrentLine ):self.IRQ_NotPending()
+                    else:
+                        if self.PPU.CurrentLine == 241:
+                            self.PPU.VBlankStart()
+                            self.EmulationCPU_BeforeNMI(4*12)
+                            if self.PPU.reg.PPUCTRL & 0x80:
+                                self.NMI()
+                            self.EmulationCPU(HDrawCycles-(4*12))
+                        else:
+                            self.EmulationCPU(HDrawCycles)
+                        if self.MAPPER.HSync( self.PPU.CurrentLine ):self.IRQ_NotPending()
+                        self.EmulationCPU(HBlankCycles)
 
-                if self.PPU.CurrentLine == 261:
-                    self.FrameFlag |= self.FrameRender
-                    self.PPU.CurrentLine_ZERO()
-                    break
+                    if self.PPU.CurrentLine == 261:
+                        
+                        self.PPU.CurrentLine_ZERO()
+                        #return 0
 
-
+                self.PPU.CurrentLine_increment(1)
+            
             #TILE_RENDER
             '''
             if self.PPU.CurrentLine == 0:
@@ -898,7 +949,7 @@ class cpu6502(object):
                     self.PPU.CurrentLine_ZERO()
                     break
                 '''
-            self.PPU.CurrentLine_increment(1)
+
             
         
     def EXEC6502(self,request_cycles):
@@ -909,6 +960,19 @@ class cpu6502(object):
         
         while request_cycles > 0:
             self.exec_cycles = 0
+
+            if (self.DMA_cycles):
+                if request_cycles <=self.DMA_cycles:
+                    self.DMA_cycles -= request_cycles
+                    self.TOTAL_cycles += request_cycles
+                    self.MAPPER.Clock( request_cycles )
+
+                    return self.TOTAL_cycles - OLD_cycles
+                else:
+                    self.exec_cycles += self.DMA_cycles
+                    request_cycles -= self.DMA_cycles
+                    self.DMA_cycles = 0
+                    
             
             if( self.INT_pending ):
                 if( self.INT_pending & NMI_FLAG ):
@@ -921,28 +985,22 @@ class cpu6502(object):
 		
             
 
-            #print "exec_cycles_0:",self.status()
             self.exec_opcode()
 
             request_cycles -= self.exec_cycles
             self.TOTAL_cycles += self.exec_cycles
+
+            if self.MAPPER.Clock(self.exec_cycles):self.IRQ_NotPending()
+
+            
             self.clockticks6502 += self.exec_cycles
             if self.clockticks6502 >= self.CpuClock:
                 self.clockticks6502 -= self.CpuClock
-            #mapper.Clock
+                
+            
+            
         return self.TOTAL_cycles - OLD_cycles
             
-            #with objmode():
-                #print "cppu:",self.Frames
-            #if self.PPU.reg.PPUADDR >= 0x3F00:
-            #    with objmode():
-            #        print 'H3F01: ',self.status()
-            #        print "VRAM(3F00)", self.PPU.VRAM[0x3F00:0x3F03]
-                        
-                
-                
-
-
 
 
     def OP6502(self,addr):
@@ -962,11 +1020,6 @@ class cpu6502(object):
                         
                 self.PPU.RenderScanline()
 
-                    
-                #if self.MAPPER.Mapper == 4:
-                    #if MMC.MMC3_HBlank(self, self.PPU.CurrentLine, self.PPU.reg.PPUCTRL):
-                        #print 'MMC3_HBlank'
-                        #self.irq6502()
                         
                 if self.PPU.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
@@ -1076,18 +1129,17 @@ class cpu6502(object):
             #self.RAM[0][address & 0x7FF] = value
             #RamWrite(address,value,self.PRGRAM)
             
-        elif bank == 0x01 or address == 0x4014:
+        elif bank == 0x01:# or address == 0x4014:
             '$2000-$3FFF'
             #print "PPU Write" ,Address
-            self.PPU.Write(address,value)
             if( address == 2000 and (value & 0x80) and (not (self.PPU.reg.reg[0] & 0x80)) and (self.PPU.reg.reg[2] & 0x80) ):
                 #if self.MAPPER.Mapper != 69:
-                    #self.exec_cycles = 114
-                    #self.exec_opcode()
-                    
-                self._NMI()
+                    #self.EXEC6502(1)
+                self.NMI()
+            self.PPU.Write(address,value)
+
             
-        elif bank == 0x02 and address != 0x4014:
+        elif bank == 0x02:# and address != 0x4014:
             '$4000-$5FFF'
             if address < 0x4100:
                 self.WriteReg(address,value)
@@ -1126,21 +1178,21 @@ class cpu6502(object):
                 self.ChannelWrite[n] = 1
                       
             #self.APU.Write(addr,value)
+                
         elif addr == 0x14:
-            #print 'DF: changed gameImage to bank0. This should work'
-            pass
-            self.PPU.Write(address,value)
+
+            self.PPU.reg.OAMDMA_W(value)
             #self.PPU.SpriteRAM = self.RAM[0][value * 0x100:value * 0x100 + 0x100]#self.bank0[value * 0x100:value * 0x100 + 0x100]
             #print self.PPU.SpriteRAM
+            self.DMA(514)
+            
         elif addr in (0x16,0x17):
-            #print bin(value)
+
             self.JOYPAD.Write(addr,value)
-        #elif addr == 0x17:
-        #    pass
-        #    self.JOYPAD2.Joypad_Count_ZERO(addr)
+
         else:
             pass
-            #print addr
+
     
     def MapperWrite(self,address, value):
         #print "MapperWrite"
