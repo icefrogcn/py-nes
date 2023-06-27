@@ -962,12 +962,13 @@ class cpu6502(object):
             self.exec_cycles = 0
 
             if (self.DMA_cycles):
-                if request_cycles <=self.DMA_cycles:
+                if request_cycles <= self.DMA_cycles:
                     self.DMA_cycles -= request_cycles
                     self.TOTAL_cycles += request_cycles
-                    self.MAPPER.Clock( request_cycles )
+                    if self.MAPPER.Clock( request_cycles ):self.IRQ_NotPending()
 
                     return self.TOTAL_cycles - OLD_cycles
+                
                 else:
                     self.exec_cycles += self.DMA_cycles
                     request_cycles -= self.DMA_cycles
@@ -982,11 +983,9 @@ class cpu6502(object):
                         self.nmicount -= 1;
                 else:
                     self._IRQ();
-		
-            
 
             self.exec_opcode()
-
+            
             request_cycles -= self.exec_cycles
             self.TOTAL_cycles += self.exec_cycles
 
@@ -1011,72 +1010,8 @@ class cpu6502(object):
         #return self.RAM[addr>>13, addr&0x1FFF] + (self.PRGRAM[addr>>13,(addr&0x1FFF)+1]<<8)
     
 
-    def Scanline(self):
-
-                #if self.MAPPER.Clock(self.clockticks6502):self.irq6502()
-                #self.log("Scanline:",self.status()) ############################
-
-
-                        
-                self.PPU.RenderScanline()
-
-                        
-                if self.PPU.CurrentLine >= 240:
-                    #self.log("CurrentLine:",self.status()) ############################
-                    if self.PPU.CurrentLine == 239 :
-                        pass
-                        #if self.PPU.render:self.PPU.RenderFrame()
-
-                        #self.APU.set_FRAMES()#updateSounds()
-                           #realframes = realframes + 1
-
-    
-                    self.PPU.reg.PPUSTATUS_W(0x80)
-
-
-                    if self.PPU.CurrentLine == 240 :
-                        if self.PPU.reg.PPUCTRL & 0x80:
-                            self._NMI()
-                            
-                if self.PPU.CurrentLine == 240:
-                    self.Frames += 1
-                if self.PPU.CurrentLine in (0,131):
-                    self.FrameFlag |= self.FrameSound
-                    #self.APU.updateSounds()
-
-                if self.PPU.CurrentLine == 258:
-                    #self.PPU.Status = 0x0
-                    self.PPU.reg.PPUSTATUS_ZERO()
-
-                
-                if self.PPU.CurrentLine == 262:
-                    #print "FRAME:",self.status() ###########################
-
-                    #self.PPU.RenderFrame()
-                    
-                    self.PPU.CurrentLine_ZERO()
-                    
-                    #if self.Frames % 60 == 0:
-                    self.FrameFlag |= self.FrameRender
-                    
-                    self.PPU.reg.PPUSTATUS_ZERO()
-                    
-                else:
-                    self.PPU.CurrentLine_increment(1)
-                
-
-                
-
-                
-
         #"DF: reordered the the elif opcode =='s. Made address long (was variant)."
     
-
-            
-
-
-    
-
       
 
     def reset6502(self):
@@ -1096,12 +1031,12 @@ class cpu6502(object):
         value = 0
         #if bank == 0 or bank >= 0x04: #in (0x00,0x04,0x05,0x06,0x07):  
             #return self.RAM.Read(address)
-        if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
+        if bank == 0x00:                        # 0x0 - 0x1FFF:
             return self.RAM[0, address & 0x7FF]
-        elif bank > 0x03:                       # Address >=0x8000 and Address <=0xFFFF
+        elif bank > 0x03:                       # 0x8000 - 0xFFFF
             return self.RAM[bank, address & 0x1FFF]
         
-        elif bank == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
+        elif bank == 0x01: 
             return self.PPU.Read(address)
 
         elif (address >=0x4000 and address <=0x4013) or address == 0x4015:
@@ -1111,10 +1046,8 @@ class cpu6502(object):
         elif address in (0x4016,0x4017): #"Read PAD"
             return self.JOYPAD.Read(address) | 0x40
 
-        #elif address == 0x4017: #"Read JOY2 "
-            #return self.JOYPAD2.Read()
             
-        elif bank == 0x03: #Address == 0x6000 -0x7FFF:
+        elif bank == 0x03: #0x6000 - 0x7FFF:
             return self.MAPPER.ReadLow(address)
             
         return 0  
@@ -1134,7 +1067,8 @@ class cpu6502(object):
             #print "PPU Write" ,Address
             if( address == 2000 and (value & 0x80) and (not (self.PPU.reg.reg[0] & 0x80)) and (self.PPU.reg.reg[2] & 0x80) ):
                 #if self.MAPPER.Mapper != 69:
-                    #self.EXEC6502(1)
+                    #self.emul_cycles += self.EXEC6502(1)
+                    #self.exec_opcode()
                 self.NMI()
             self.PPU.Write(address,value)
 
@@ -1145,15 +1079,7 @@ class cpu6502(object):
                 self.WriteReg(address,value)
         
         elif bank == 0x03:#Address >= 0x6000 and Address <= 0x7FFF:
-            #print 'WriteLow'
             return self.MAPPER.WriteLow(address, value)
-            if NES.SpecialWrite6000 == True :
-                #print 'SpecialWrite6000'
-                self.MapperWrite(address, value)
-
-            elif NES.UsesSRAM:
-                if Mapper != 69:
-                    self.RAM[3, address & 0x1FFF] = value
 
         elif bank >= 0x04: #Address >=0x8000 and Address <=0xFFFF:
             self.MapperWrite(address, value)
@@ -1181,10 +1107,9 @@ class cpu6502(object):
                 
         elif addr == 0x14:
 
-            self.PPU.reg.OAMDMA_W(value)
-            #self.PPU.SpriteRAM = self.RAM[0][value * 0x100:value * 0x100 + 0x100]#self.bank0[value * 0x100:value * 0x100 + 0x100]
-            #print self.PPU.SpriteRAM
-            self.DMA(514)
+            self.PPU.Write(address,value)
+
+            self.DMA(514) #unsupport????why
             
         elif addr in (0x16,0x17):
 
@@ -2189,74 +2114,11 @@ class cpu6502(object):
             self.PC -= 1;
             self.ADD_CYCLE(4);
         
-    
-@jit
-def a(value):
-    for i in range(2):
-        #value = True
-        value = value & 0xFF
-@jit
-def a1(value):
-    for i in range(2):
-        #value = 1
-        value = value & 0b11111111
-        #value &= 0xFF
 
-def b(value):
-    for i in range(2):
-        value = 1
-        value = value & 0xFF
-
-def b1(value):
-    for i in range(2):
-        value = 333 #& 0xFF
-        value &= 0xFF
-
-
-#eee = 111     
-@jit(nopython=True)
-def ttime():
-    def ina():
-        return eee
-    return ina()
 
 if __name__ == '__main__':
     #cpu_ram = Memory()
     cpu = cpu6502()
-    #cpu.testspeed()
-    
-    #print help(cpu)
-    #print ADR_IMM
-    #print cpu.adrmode_opcode(3)
-    Address = 15
-    #cpu.aa = 200
-    list1 = [0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0x10,0x11,0x12,0x13,0x15]
-
-    start = time.clock()
-    a(Address)
-    print time.clock() - start
-
-    start = time.clock()
-    a1(Address)
-    print time.clock() - start
-
-    
-    start = time.clock()
-    b(Address)
-    print time.clock() - start
-
-    start = time.clock()
-    b1(Address)
-    print time.clock() - start
-
-    
-    aa = 10
-    aa <<= 1
-    print bin(aa)
-
-    aa &= 0x7
-    print bin(aa)
-                #break
     
         
 
