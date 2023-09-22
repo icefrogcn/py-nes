@@ -19,6 +19,7 @@ from nes import NES
 from mmc import MMC
 
 from memory import Memory
+from cpu_reg import CPU_Reg,CPU_reg_type
 from cpu_memory import CPU_Memory,CPU_Memory_type
 
 #from apu import APU#,APU_type
@@ -74,6 +75,7 @@ cpu_spec = [('PC',uint16),
             ('Y',uint8),
             ('S',uint8),
             ('P',uint16),
+            ('reg',CPU_reg_type),
             ('INT_pending',uint8),
             ('nmicount',int16),
             ('DT',uint8),
@@ -94,7 +96,7 @@ cpu_spec = [('PC',uint16),
             ('bank0',uint8[:]),
             ('Sound',uint8[:]),
             ('NewMapperWriteFlag',uint8),
-            ('MapperWriteFlag',uint8),
+            ('isMapperWrite',uint8),
             ('MapperWriteData',uint8),
             ('MapperWriteAddress',uint16),
             ('FrameFlag',uint8),
@@ -113,9 +115,8 @@ cpu_spec = [('PC',uint16),
 ChannelWrite = np.zeros(0x4,np.uint8)
 
 
-print('loading NEW CPU CLASS')
         
-@jitclass(cpu_spec)
+#@jitclass(cpu_spec)
 class cpu6502(object):
     'Registers & tempregisters'
     
@@ -126,11 +127,12 @@ class cpu6502(object):
                  PPU = PPU(),
                  MAPPER = MAPPER(),
                  ChannelWrite = ChannelWrite,
+                 reg = CPU_Reg(),
                  JOYPAD = JOYPAD()
                  ):
 
         #self.AddressMask =0 #Long 'Integer
-        
+        self.reg = reg
         self.PC = 0          
         self.A = 0           
         self.X = 0            
@@ -149,6 +151,7 @@ class cpu6502(object):
         self.opcode = 0
 
         self.base_cycles = self.emul_cycles = self.DMA_cycles = 0
+        self.TOTAL_cycles = 0
 
         self.ZN_Table = np.zeros(256,dtype = np.uint8)
         self.ZN_Table[0] = Z_FLAG
@@ -170,7 +173,7 @@ class cpu6502(object):
         
         #self.debug = 0
         self.NewMapperWriteFlag = 0
-        self.MapperWriteFlag = 0
+        self.isMapperWrite = 0
         self.MapperWriteData =  0
         self.MapperWriteAddress = 0
 
@@ -234,7 +237,7 @@ class cpu6502(object):
     def CHECK_EA(self):
         if((self.ET&0xFF00) != (self.EA&0xFF00) ):self.ADD_CYCLE(1); 
     
-    def SET_ZN_FLAG(self,A): self.P &= ~(Z_FLAG|N_FLAG); self.P |= self.ZN_Table[A];
+    def SET_ZN_FLAG(self, A): self.P &= ~(Z_FLAG|N_FLAG); self.P |= self.ZN_Table[A];
     
     def SET_FLAG(self, V):
         self.P |=  V
@@ -769,18 +772,7 @@ class cpu6502(object):
         if self.debug:
             print args
 
-    @property
-    def FrameRender(self):
-        return np.uint8(0x1)
-    @property
-    def FrameRenderFlag(self):
-        return self.FrameFlag & self.FrameRender
-    @property
-    def FrameSound(self):
-        return np.uint8(0x2)
-    @property
-    def FrameSoundFlag(self):
-        return self.FrameFlag & self.FrameSound
+
 
     @property
     def ttime(self):
@@ -793,7 +785,7 @@ class cpu6502(object):
     def FrameSound_ZERO(self):
         self.FrameFlag &= ~self.FrameSound
     def MapperWriteFlag_ZERO(self):
-        self.MapperWriteFlag = 0
+        self.isMapperWrite = 0
 
     def EmulationCPU(self,basecycles):
         self.base_cycles += basecycles
@@ -805,18 +797,33 @@ class cpu6502(object):
         self.base_cycles += cycles
         self.emul_cycles += self.EXEC6502(cycles/12)
 
-        
+
+
+    @property
+    def FrameRender(self):
+        return np.uint8(0x1)
+    @property
+    def isFrameRender(self):
+        return self.FrameFlag & self.FrameRender
+    @property
+    def FrameSound(self):
+        return np.uint8(0x2)
+    @property
+    def isFrameSound(self):
+        return self.FrameFlag & self.FrameSound
+
+    
     def run6502(self):
         while self.Running:
-            if self.FrameRenderFlag:
+            if self.isFrameRender:
                 self.FrameFlag &= ~self.FrameRender
                 return self.FrameRender
 
-            if self.FrameSoundFlag:
+            if self.isFrameSound:
                 self.FrameFlag &= ~self.FrameSound
                 return self.FrameSound
                 
-            if self.MapperWriteFlag:
+            if self.isMapperWrite:
                 return self.FrameFlag
 
             if self.PPU.CurrentLine in (0,131):
@@ -1129,7 +1136,7 @@ class cpu6502(object):
         #        self.APU.ExWrite(Address, value)
                     
         else:
-            self.MapperWriteFlag = 1
+            self.isMapperWrite = 1
             self.MapperWriteAddress = address
             self.MapperWriteData = value
     

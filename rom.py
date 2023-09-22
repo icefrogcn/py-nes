@@ -10,14 +10,14 @@ import threading
 import codecs
 #import turtle
 
-import cv2
+#import cv2
 
 from numba import jit,jitclass
 from numba import int8,uint8,int16,uint16
 import numpy as np
 import numba as nb
 
-import pylab
+#import pylab
 
 #自定义类
 #from neshardware import * 

@@ -1,29 +1,47 @@
 # -*- coding: UTF-8 -*-
 import numpy as np
+import numba as nb
 from numba import jitclass
 from numba import uint8,uint16
 
+from memory import Memory,memory_type
 
-
-@jitclass([('VRAM',uint8[:]), \
-           ('SpriteRAM',uint8[:]), \
-           ('RAM',uint8[:,:]) \
+@jitclass([('memory',memory_type), \
+           ('RAM',uint8[:,:]), \
+           #('PRGRAM',uint8[:,:]), \
+           #('Sound',uint8[:]) \
            ])
-class Memory(object):
-    def __init__(self):
-        self.VRAM = np.zeros(0x4000,np.uint8)
-        self.SpriteRAM = np.zeros(0x100,np.uint8)
-        self.RAM = np.zeros((8,0x2000), np.uint8)
-        
+class CPU_Memory(object):
+    def __init__(self, memory = Memory()):
+        self.memory = memory
+        self.RAM = self.memory.RAM
+        #self.PRGRAM = self.RAM
+        #self.bank0 = self.PRGRAM[0] #  RAM 
+        #self.bank6 = self.PRGRAM[3] #  SaveRAM 
+        #self.bank8 = self.PRGRAM[4] #  8-E are PRG-ROM
+        #self.bankA = self.PRGRAM[5] # 
+        #self.bankC = self.PRGRAM[6] # 
+        #self.bankE = self.PRGRAM[7] # 
 
-        
+    def Read(self,address):
+        bank = address >> 13
+        value = 0
+        if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
+            return self.RAM[0, address & 0x7FF]
+        elif bank > 0x03:                       # Address >=0x8000 and Address <=0xFFFF
+            return self.RAM[bank, address & 0x1FFF]
 
+    def write(self,address):
+        pass
+
+CPU_Memory_type = nb.deferred_type()
+CPU_Memory_type.define(CPU_Memory.class_type.instance_type)
         
 
                     
 if __name__ == '__main__':
 
-    ram = Memory()
+    ram = CPU_Memory()
 
     
 

@@ -7,13 +7,15 @@ import numpy as np
 from main import MAPPER, MAIN_class_type
 
 
-spec = [('cartridge',MAIN_class_type)        
+spec = [('cartridge',MAIN_class_type),
+        ('RenderMethod',uint8)              
         ]
 @jitclass(spec)
 class MAPPER(object):
 
     def __init__(self,cartridge=MAPPER()):
         self.cartridge = cartridge
+        self.RenderMethod = 0
 
     @property
     def Mapper(self):
@@ -25,7 +27,10 @@ class MAPPER(object):
         patch = 0
 
         return 1
-
+    def Clock(self,cycles):
+        return False
+    def HSync(self,scanline):
+        return False 
     
     def Write(self,addr,data):#$8000-$FFFF Memory write
         self.cartridge.SetPROM_16K_Bank(4, data )

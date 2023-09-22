@@ -8,13 +8,16 @@ import numpy as np
 from main import MAPPER, MAIN_class_type
 
 
-spec = [('cartridge',MAIN_class_type)        
+spec = [('cartridge',MAIN_class_type),
+        ('RenderMethod',uint8)
         ]
 @jitclass(spec)
 class MAPPER(object):
 
     def __init__(self,cartridge=MAPPER()):
-         self.cartridge = cartridge
+        self.cartridge = cartridge
+        self.RenderMethod = 0
+        
     @property
     def Mapper(self):
         return 0
@@ -38,6 +41,10 @@ class MAPPER(object):
     def WriteLow(self,address,data):
         self.cartridge.WriteLow(address,data)
 
+    def Clock(self, cycle ):
+        return False
+    def HSync(self,scanline):
+        return False
 MAPPER_type = nb.deferred_type()
 MAPPER_type.define(MAPPER.class_type.instance_type)
 

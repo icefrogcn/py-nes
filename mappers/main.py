@@ -10,8 +10,20 @@ import numba as nb
 
 from rom import ROM,ROM_class_type
 from memory import Memory
+POST_ALL_RENDER = 0
+PRE_ALL_RENDER  = 1
+POST_RENDER     = 2
+PRE_RENDER      = 3
+TILE_RENDER     = 4
 
-__all__ = ['MAPPER']
+
+__all__ = [#'MAPPER',
+           'POST_ALL_RENDER',
+           'PRE_ALL_RENDER',
+           'POST_RENDER',
+           'PRE_RENDER',
+           'TILE_RENDER'
+           ]
 #MAPPER
 
 @jitclass([('ROM',ROM_class_type), \
@@ -20,7 +32,8 @@ __all__ = ['MAPPER']
            ('PRGRAM',uint8[:,:]), \
            ('VRAM',uint8[:]), \
            ('PROM',uint8[:]), \
-           ('VROM',uint8[:]) \
+           ('VROM',uint8[:]), \
+           ('RenderMethod',uint8)
            ])
 class MAPPER(object):
     
@@ -35,6 +48,8 @@ class MAPPER(object):
         self.VRAM = memory.VRAM
         self.PROM = ROM.PROM
         self.VROM = ROM.VROM
+
+        self.RenderMethod = POST_ALL_RENDER
 
     @property
     def Mapper(self):
@@ -101,8 +116,11 @@ class MAPPER(object):
     
     def ExWrite(self, address, data ):
         pass
+    
     def Clock(self, cycle ):
-        pass
+        return False
+    def HSync(self, cycle ):
+        return False
     
 
     def SetPROM_8K_Bank(self, page, bank):
@@ -133,18 +151,42 @@ class MAPPER(object):
     def SetCRAM_1K_Bank(self, page, bank):
         #print "Set CRAM"
         bank &= 0x1F
-        CRAM = 0x8000 + 0x0400 * bank
-        self.VRAM[page*0x400:page*0x400 + 0x400] = self.VROM[CRAM:CRAM + 0x400]
+        #CRAM = 0x8000 + 0x0400 * bank
+        CRAM = 0x0400 * (bank & 0x7)
+        self.VRAM[page*0x400:page*0x400 + 0x400] = self.PRGRAM[(bank & 0x18 >> 3) + 4][CRAM:CRAM + 0x400]
 
     def SetVRAM_1K_Bank(self, page, bank):
         #print "Set VRAM"
         bank &= 0x3
         VRAM = 0x0400 * bank + 4096
-        self.VRAM[page*0x400:page*0x400 + 0x400] = self.VROM[VRAM:VRAM + 0x400]
+        self.VRAM[page*0x400:page*0x400 + 0x400] = self.VRAM[VRAM:VRAM + 0x400]
 
     def SetVROM_8K_Bank(self,bank):
         for i in range(8):
             self.SetVROM_1K_Bank( i, bank * 8 + i )
+
+    def SetVROM_8K_Bank8(self, bank0, bank1, bank2, bank3,
+			 bank4, bank5, bank6, bank7 ):
+        self.SetVROM_1K_Bank( 0, bank0)
+        self.SetVROM_1K_Bank( 1, bank1)
+        self.SetVROM_1K_Bank( 2, bank2)
+        self.SetVROM_1K_Bank( 3, bank3)
+        self.SetVROM_1K_Bank( 4, bank4)
+        self.SetVROM_1K_Bank( 5, bank5)
+        self.SetVROM_1K_Bank( 6, bank6)
+        self.SetVROM_1K_Bank( 7, bank7)
+
+        
+
+    def SetVROM_4K_Bank(self, page, bank):
+        self.SetVROM_1K_Bank( page+0, bank*4+0 );
+        self.SetVROM_1K_Bank( page+1, bank*4+1 );
+        self.SetVROM_1K_Bank( page+2, bank*4+2 );
+        self.SetVROM_1K_Bank( page+3, bank*4+3 );
+
+    def SetVROM_2K_Bank(self, page, bank):
+        self.SetVROM_1K_Bank( page+0, bank*2+0 );
+        self.SetVROM_1K_Bank( page+1, bank*2+1 );
 
     def SetVROM_1K_Bank(self, page, bank):
         bank %= self.ROM.VROM_1K_SIZE

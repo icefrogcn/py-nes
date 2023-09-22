@@ -33,7 +33,7 @@ SMF_EVENT_CONTROL =0xB0
 CpuClock = 1789772.5
 nRate	= 22050
 cycle_rate = int((CpuClock * 65536)/nRate)
-print 'cycle_rate:',cycle_rate
+#print 'cycle_rate:',cycle_rate
 #ChannelWrite = np.zeros(0x4,np.uint8)
 '''
 	//  0:Master
@@ -235,7 +235,7 @@ class APU(object):
     def playfun(self, ch, frequency, volume):
         if self.chk_SoundCtrl :
             #volume = v #'Get volume'
-            length = self.vlengths[self.Sound[ch * 4 + 3] >> 3] * 2#'Get length'
+            length = self.vlengths[self.Sound[ch * 4 + 3] >> 3]#'Get length'
             if volume > 0 :
                 if frequency > 1 :
                     if self.ChannelWrite[ch] : #Ensures that a note doesn't replay unless memory written

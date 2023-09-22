@@ -5,7 +5,9 @@ from numba import int8,uint8,int16,uint16,uint32
 import numba as nb
 import numpy as np
 
+from main import *
 from main import MAPPER,MAIN_class_type
+
 
 spec = [('cartridge',MAIN_class_type),
         ('reg',uint8[:]),
@@ -14,7 +16,8 @@ spec = [('cartridge',MAIN_class_type),
         ('irq_latch',uint8),
         ('irq_clock',uint16),
         ('irq_occur',uint8),
-        ('addrmask',uint16)        
+        ('addrmask',uint16),
+        ('RenderMethod',uint8)
         ]
 @jitclass(spec)
 class MAPPER(object):
@@ -32,6 +35,7 @@ class MAPPER(object):
         
         self.addrmask = 0xFFFF
 
+        self.RenderMethod = POST_RENDER
 
     @property
     def Mapper(self):
@@ -42,6 +46,8 @@ class MAPPER(object):
             self.reg[i] = i
 
         self.reg[8] = 0
+
+        self.reg[9] = 1
         self.cartridge.SetPROM_32K_Bank(0, 1, self.cartridge.ROM.PROM_8K_SIZE-2, self.cartridge.ROM.PROM_8K_SIZE-1 )
         self.cartridge.SetVROM_8K_Bank(0)
 	
@@ -129,7 +135,14 @@ class MAPPER(object):
                         self.irq_counter += 1
             if( self.irq_occur ):
                 return True
+        return False
+            
+    def HSync(self,scanline):
+        return False
 
+
+
+    
 
 MAPPER_type = nb.deferred_type()
 MAPPER_type.define(MAPPER.class_type.instance_type)

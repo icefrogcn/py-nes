@@ -4,6 +4,7 @@ from numba import int8,uint8,int16,uint16,uint32
 import numba as nb
 import numpy as np
 
+from main import *
 from main import MAPPER,MAIN_class_type
 
 spec = [('cartridge',MAIN_class_type),
@@ -12,7 +13,8 @@ spec = [('cartridge',MAIN_class_type),
         ('irq_enable',uint8),
         ('irq_counter',uint8),
         ('exsound_enable',uint8),
-        ('patch',uint8)        
+        ('patch',uint8),
+        ('RenderMethod',uint8)        
         ]
 @jitclass(spec)
 class MAPPER(object):
@@ -27,6 +29,8 @@ class MAPPER(object):
         self.exram = np.zeros(128, np.uint8)
         self.irq_enable = 0
         self.irq_counter = 0
+
+        self.RenderMethod = POST_RENDER
 
     @property
     def Mapper(self):
@@ -157,7 +161,8 @@ class MAPPER(object):
                 return 1
             self.reg[2] = data
             
-                    
+    def HSync(self,scanline):
+        return False
 
     def Clock(self,cycles):
         if( self.irq_enable):
@@ -165,6 +170,7 @@ class MAPPER(object):
             if(self.irq_counter >= 0x7FFF ):
                 self.irq_counter = 0x7FFF
                 return True
+        return False
 
 MAPPER_type = nb.deferred_type()
 MAPPER_type.define(MAPPER.class_type.instance_type)

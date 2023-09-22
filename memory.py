@@ -17,6 +17,10 @@ class Memory(object):
         self.SpriteRAM = np.zeros(0x100,np.uint8)
         self.RAM = np.zeros((8,0x2000), np.uint8)
 
+    def reset(self):
+        self.VRAM = np.zeros(0x4000,np.uint8)
+        self.SpriteRAM = np.zeros(0x100,np.uint8)
+        self.RAM = np.zeros((8,0x2000), np.uint8)
         
 memory_type = nb.deferred_type()
 memory_type.define(Memory.class_type.instance_type)
@@ -25,7 +29,8 @@ memory_type.define(Memory.class_type.instance_type)
                     
 if __name__ == '__main__':
 
-    ram = Memory()
+    mem = Memory()
+
 
     
 

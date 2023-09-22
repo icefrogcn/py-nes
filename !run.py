@@ -7,12 +7,12 @@ from consloe import run
 
     
 if __name__ == '__main__':
-    cp = cProfile.Profile()
-    cp.enable()
+    #cp = cProfile.Profile()
+    #cp.enable()
     run()
-    cp.disable()
-    stats = pstats.Stats(cp).sort_stats('cumtime')
-    cp.print_stats()
+    #cp.disable()
+    #stats = pstats.Stats(cp).sort_stats('cumtime')
+    #cp.print_stats()
     #cProfile.run('run()')
     
 

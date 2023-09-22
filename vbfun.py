@@ -1,8 +1,11 @@
 # -*- coding: UTF-8 -*-
 import time
-from numba import jit
+from numba import jit,jitclass
+from numba import int8,uint8,int16,uint16,uint32
 import numpy as np
-
+import numba as nb
+from numba.typed import Dict
+from numba import types
 #自定义类
 from deco import *
 
@@ -23,18 +26,52 @@ def mcopy1(dest, dest_p, src, src_p , size):
     for i in range(10000):
         dest[dest_p:dest_p + size] = src[src_p : src_p + size]
 
+reg_spec = [('PC',uint16),
+            ('a',uint8),
+            ('X',uint8),
+            ('Y',uint8),
+            ('S',uint8),
+            ('p',uint16)]
+#@jitclass(reg_spec)
+class reg(object):
+    PC = 0          
+    a = 0           
+    X = 0            
+    Y = 0             
+    S = 0              
+    p = 0
+    def __init__(self):
+        pass
+    def add(self):
+        while True:
+            self.a += 1 if self.a < 200 else -1
+            yield self.a
+ 
+
+        
+#reg_type = nb.deferred_type()
+#reg_type.define(reg.class_type.instance_type)
+
+#regs = {'a':123}
+
+
+#@jitclass([('reg',reg_type)])        
+class test(object):
+    def __init__(self):
+        pass
+        self.reg = reg()
+    def inc(self):
+        self.reg.a += 1
+    def dec(self):
+        self.reg.a -= 1
+    def a(self):
+        print self.reg.a
+
+
+
 if __name__ == '__main__':
     pass
-    print range(10)
-    test1 = [255] * 200000
-    test2 = range(300000)
-    #print range(100)
-    start = time.clock()
-    mcopy1(test1, 0, test2, 11 , 10000)
-    print time.clock() - start
-    #print test1
-    start = time.clock()
-    mcopy(test1, 0, test2, 11 , 10000)
-    print time.clock() - start
-    #print test1
+       
+    t=test()
+    
 

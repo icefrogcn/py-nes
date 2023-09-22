@@ -14,7 +14,8 @@ spec = [('cartridge',MAIN_class_type),
         ('wram_bank',uint8),
         ('wram_count',uint8),
         ('shift',uint16),       
-        ('regbuf',uint16)        
+        ('regbuf',uint16),
+        ('RenderMethod',uint8)        
         ]
 @jitclass(spec)
 class MAPPER(object):
@@ -33,10 +34,15 @@ class MAPPER(object):
         self.shift = 0
         self.regbuf = 0
 
+        self.RenderMethod = 0
+
     @property
     def Mapper(self):
         return 1
 
+    def Clock(self,cycles):
+        return False
+    
     def reset(self):
         self.reg[0] = 0x0C
         #reg[1] = reg[2] = reg[3] = 0
@@ -69,10 +75,11 @@ class MAPPER(object):
             self.shift = 0
             self.regbuf = 0
             self.reg[0] |= 0x0C
+            return
             
         if( data & 0x01 ):
-            self.regbuf |= 1
-            self.regbug = self.regbuf << self.shift
+            self.regbuf |= (1 << self.shift)
+            #self.regbuf = self.regbuf 
             
         self.shift += 1
         if( self.shift < 5 ):return
@@ -84,13 +91,14 @@ class MAPPER(object):
         self.regbuf = 0
 
         if self.patch != 1:
-            with objmode():
-                print "#For Normal Cartridge"
+            #with objmode():
+                #print "#For Normal Cartridge"
             if addr == 0:
                 if( self.reg[0] & 0x02 ):
-                    self.cartridge.Mirroring = 1 if( self.reg[0] & 0x01 ) else 0
+                    self.cartridge.Mirroring_W(0 if( self.reg[0] & 0x01 ) else 1)
                 else:
-                    self.cartridge.Mirroring = 3 if( self.reg[0] & 0x01 ) else 2
+                    self.cartridge.Mirroring_W(2)#4 if( self.reg[0] & 0x01 ) else 3)
+                self.cartridge.MirrorXor_W(((self.cartridge.Mirroring + 1) % 3) * 0x400)
             elif addr == 1:
                 if self.cartridge.VROM_1K_SIZE:
                     if( self.reg[0] & 0x10 ):
@@ -119,9 +127,10 @@ class MAPPER(object):
                 print "For 512K/1M byte Cartridge"
             if addr == 0:
                 if( self.reg[0] & 0x02 ):
-                    self.cartridge.Mirroring = 1 if( self.reg[0] & 0x01 ) else 0
+                    self.cartridge.Mirroring_W(0 if( self.reg[0] & 0x01 ) else 1)
                 else:
-                    self.cartridge.Mirroring = 3 if( self.reg[0] & 0x01 ) else 2
+                    self.cartridge.Mirroring_W(4 if( self.reg[0] & 0x01 ) else 3)
+                self.cartridge.MirrorXor_W(((self.cartridge.Mirroring + 1) % 3) * 0x400)
             if self.cartridge.VROM_1K_SIZE:
                     if( self.reg[0] & 0x10 ):
                         self.cartridge.SetVROM_4K_Bank(0, self.reg[1] )
@@ -149,10 +158,13 @@ class MAPPER(object):
 		
                         
         
-        self.cartridge.MirrorXor_W(((self.cartridge.Mirroring + 1) % 3) * 0x400)
+        
 
 MAPPER_type = nb.deferred_type()
 MAPPER_type.define(MAPPER.class_type.instance_type)
+
+
+
 
 if __name__ == '__main__':
     mapper = MAPPER()

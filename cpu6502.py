@@ -14,12 +14,14 @@ import traceback
 #自定义类
 from cpu6502_opcodes import *
          
-import memory
+
 from nes import NES
 
 from mmc import MMC
 
-from apu import APU#,APU_type
+from memory import Memory
+from cpu_memory import CPU_Memory,CPU_Memory_type
+#from apu import APU#,APU_type
 from ppu import PPU,PPU_type
 from joypad import JOYPAD,JOYPAD_type
 from mappers.mapper import MAPPER,MAPPER_type
@@ -35,35 +37,7 @@ V_FLAG = 0x40	#	// 1: Overflow
 N_FLAG = 0x80	#	// 1: Negative
 
 
-print('loading CPU MEMORY CLASS')
-@jitclass([('RAM',uint8[:,:]), \
-           ('PRGRAM',uint8[:,:]), \
-           ('Sound',uint8[:]) \
-           ])
-class Memory(object):
-    def __init__(self, memory = memory.Memory()):
-        self.RAM = memory.RAM
-        self.PRGRAM = self.RAM
-        #self.bank0 = self.PRGRAM[0] #  RAM 
-        #self.bank6 = self.PRGRAM[3] #  SaveRAM 
-        #self.bank8 = self.PRGRAM[4] #  8-E are PRG-ROM
-        #self.bankA = self.PRGRAM[5] # 
-        #self.bankC = self.PRGRAM[6] # 
-        #self.bankE = self.PRGRAM[7] # 
 
-    def Read(self,address):
-        bank = address >> 13
-        value = 0
-        if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
-            return self.PRGRAM[0, address & 0x7FF]
-        elif bank > 0x03:                       # Address >=0x8000 and Address <=0xFFFF
-            return self.PRGRAM[bank, address & 0x1FFF]
-
-    def write(self,address):
-        pass
-
-CPU_Memory_class_type = nb.deferred_type()
-CPU_Memory_class_type.define(Memory.class_type.instance_type)
 
 
 cpu_spec = [('PC',uint16),
@@ -74,76 +48,82 @@ cpu_spec = [('PC',uint16),
             ('p',uint16),
             ('savepc',uint16),
             ('saveflags',uint16),
-            ('clockticks6502',uint16),
+            ('clockticks6502',uint32),
+            ('exec_cycles',uint8),
             ('opcode',uint8),
-            #('maxCycles',uint8),
-            ('RAM',CPU_Memory_class_type),
-            ('PRGRAM',uint8[:,:]),
+            ('STACK',uint8[:]),
+            ('ScanlineCycles',uint8),
+            ('memory',CPU_Memory_type),
+            ('RAM',uint8[:,:]),
             ('bank0',uint8[:]),
             ('Sound',uint8[:]),
             ('NewMapperWriteFlag',uint8),
-            ('MapperWriteFlag',uint8),
+            ('isMapperWrite',uint8),
             ('MapperWriteData',uint8),
             ('MapperWriteAddress',uint16),
             ('FrameFlag',uint8),
             ('Frames',uint32),
             ('PPU',PPU_type),
-            #('APU',APU_type),
             ('ChannelWrite',uint8[:]),
-            #('SoundChannel',uint8[:]),
             ('MAPPER',MAPPER_type),
-            #('ChannelWrite',uint8[:]),
-            ('JOYPAD1',JOYPAD_type),
-            ('JOYPAD2',JOYPAD_type),
+            ('JOYPAD',JOYPAD_type),
             ('Running',uint8),
             ('addrmode',uint8[:]),
             ('instructions',uint8[:]),
             ('Ticks',uint8[:])#,
-            #('MAPPER',MAPPER_class_type)
-            #('clockticks6502',uint16),
             ]
-print('loading CPU CLASS')
 ChannelWrite = np.zeros(0x4,np.uint8)
-        
+
+
+print('loading OLD CPU CLASS')
+
 @jitclass(cpu_spec)
 class cpu6502(object):
     'Registers & tempregisters'
     
     '32bit instructions are faster in protected mode than 16bit'
-    #maxCycles1 = np.uint8(114) # As Long 'max cycles per scanline from scanlines 0-239
-    #realframes = np.uint8(0) # As Long 'actual # of frames rendered
 
-    def __init__(self, memory = memory.Memory(), PPU = PPU(), MAPPER = MAPPER(), ChannelWrite = ChannelWrite, JOYPAD1 = JOYPAD(), JOYPAD2 = JOYPAD()):
+    def __init__(self,
+                 memory = Memory(),
+                 PPU = PPU(),
+                 MAPPER = MAPPER(),
+                 ChannelWrite = ChannelWrite,
+                 JOYPAD = JOYPAD()
+                 ):
 
         #self.AddressMask =0 #Long 'Integer
         
-        self.PC = 0 #             
-        self.a = 0 #               
-        self.X = 0 #                
-        self.Y = 0 #                
-        self.S = 0 #                
-        self.p = 0 #                
-        self.savepc = 0 # As Long
-        self.saveflags = 0 # As Long 'Integer
-        self.clockticks6502 = 0 # As Long
-        self.opcode = 0 # As Byte
+        self.PC = 0          
+        self.a = 0           
+        self.X = 0            
+        self.Y = 0             
+        self.S = 0              
+        self.p = 0            
+        self.savepc = 0 
+        self.saveflags = 0 
+        self.clockticks6502 = 0
+        self.exec_cycles = 0
+        self.opcode = 0 
 
-        #self.maxCycles = 0 # As Long 'max cycles until next scanline
-
-        self.RAM = Memory(memory)
-        self.PRGRAM = self.RAM.PRGRAM
-        self.bank0 = self.PRGRAM[0]
-        #self.bank6 = self.PRGRAM[3]
-        #self.bank8 = self.PRGRAM[4]
-        #self.bankA = self.PRGRAM[5]
-        #self.bankC = self.PRGRAM[6]
-        #self.bankE = self.PRGRAM[7]
+        self.ScanlineCycles = 0
         
-        self.Sound = self.RAM.PRGRAM[2][0:0x100]
+
+        self.memory = CPU_Memory(memory)
+        self.RAM = self.memory.RAM
+        self.bank0 = self.RAM[0]
+        #self.bank6 = self.RAM[3]
+        #self.bank8 = self.RAM[4]
+        #self.bankA = self.RAM[5]
+        #self.bankC = self.RAM[6]
+        #self.bankE = self.RAM[7]
+
+        self.STACK = self.memory.RAM[0][0x100:0x200]
+        
+        self.Sound = self.memory.RAM[2][0:0x100]
         
         #self.debug = 0
         self.NewMapperWriteFlag = 0
-        self.MapperWriteFlag = 0
+        self.isMapperWrite = 0
         self.MapperWriteData =  0
         self.MapperWriteAddress = 0
 
@@ -151,12 +131,12 @@ class cpu6502(object):
         self.Frames = 0
 
         self.PPU = PPU
-        #self.APU = APU
+        
         self.ChannelWrite = ChannelWrite
         
         self.MAPPER = MAPPER
-        self.JOYPAD1 = JOYPAD1
-        self.JOYPAD2 = JOYPAD2
+        self.JOYPAD = JOYPAD
+        
         
         self.Running = 1
         
@@ -174,12 +154,32 @@ class cpu6502(object):
         
         
     @property
-    def maxCycles1(self):
-        return 114
+    def CpuClock(self):
+        return 1789772.5
+
+
+    @property
+    def FrameCycles(self):
+        return 29780.5
+    @property
+    def FrameIrqCycles(self):
+        return 29780.5
+
     @property
     def debug(self):
         return 0
 
+    def PUSH(self,value):
+        self.STACK[self.S & 0xFF] = value
+        self.S -= 1
+        self.S &= 0xFF
+        
+    def POP(self):
+        self.S += 1
+        self.S &= 0xFF
+        return self.STACK[self.S]
+        
+    
     def FrameFlag_ZERO(self):
         self.FrameFlag = 0
 
@@ -187,14 +187,9 @@ class cpu6502(object):
     def implied6502(self):
         return
 
-    def reset6502(self):
-        self.a = 0; self.X = 0; self.Y = 0; self.p = 0x22
-        self.S = 0xFF
-        self.PC = self.Read6502_2(0xFFFC)
-        
 
     def status(self):
-        return self.PC,self.clockticks6502,self.PPU.reg.PPUSTATUS,self.PPU.CurrentLine,self.a,self.X,self.Y,self.S,self.p,self.opcode
+        return self.PC,self.exec_cycles,self.PPU.reg.PPUSTATUS,self.Frames,self.PPU.CurrentLine,self.a,self.X,self.Y,self.S,self.p,self.opcode
 
     def log(self,*args):
         #print self.debug
@@ -204,8 +199,14 @@ class cpu6502(object):
     def FrameRender(self):
         return np.uint8(0x1)
     @property
+    def isRenderFrame(self):
+        return self.FrameFlag & self.FrameRender
+    @property
     def FrameSound(self):
         return np.uint8(0x2)
+    @property
+    def isSoundFrame(self):
+        return self.FrameFlag & self.FrameSound
 
     @property
     def ttime(self):
@@ -213,42 +214,72 @@ class cpu6502(object):
             time1 = time.time()
         return time1
 
-    def exec6502(self):
+    def FrameRender_ZERO(self):
+        self.FrameFlag &= ~self.FrameRender
+    def FrameSound_ZERO(self):
+        self.FrameFlag &= ~self.FrameSound
+    def MapperWriteFlag_ZERO(self):
+        self.MapperWriteFlag = 0
+        
+    def run6502(self):
 
-        #exec6502new(self)
+        
         #fps = 0
-        start = self.ttime
+        #start = self.ttime
         
         while self.Running:
-            #if self.ttime - start < 0.016:
-            #    continue
-            #start = self.ttime
+            
             #if self.Frames and self.Frames % 60 == 0:
                 #with objmode():
                     #print "cppu:",self.Frames
-            if self.FrameFlag & self.FrameRender:
-                pass
+            
+            if self.isRenderFrame:
                 self.FrameFlag &= ~self.FrameRender
-                #continue
                 return self.FrameRender
 
-            if self.FrameFlag & self.FrameSound:
+            if self.isSoundFrame:
                 self.FrameFlag &= ~self.FrameSound
-                #continue
                 return self.FrameSound
                 
-            if self.MapperWriteFlag:
-                return 0
+            if self.isMapperWrite:
+                return self.FrameFlag
                 
-            self.opcode = self.Read6502(self.PC)  #Fetch Next Operation
-            self.PC += 1
-            self.clockticks6502 += self.Ticks[self.opcode]
-
+            
             #self.instruction_dic.get(self.instructions[self.opcode])()
+
+            
             self.exec_opcode()
-            #if self.PPU.CurrentLine ==49:print self.status()
-            if self.clockticks6502 > self.maxCycles1:
+            #with objmode():
+                #print "cppu:",self.Frames
+            #if self.PPU.reg.PPUADDR >= 0x3F00:
+            #    with objmode():
+            #        print 'H3F01: ',self.status()
+            #        print "VRAM(3F00)", self.PPU.VRAM[0x3F00:0x3F03]
+                        
+            #if hasattr(self.MAPPER, 'Clock'):
+                #self.MAPPER.Clock(exec_cycles)
+                
+            if self.exec_cycles > self.ScanlineCycles:
+
+                if self.PPU.CurrentLine >= 160  and self.Frames >= 17:
+                    pass
+                    #with objmode():
+                        #print "cppu:",self.Frames
+                    #print 'curli1: ',self.status()
+                    #print "VRAM(3F00)", self.PPU.VRAM[0x3F00:0x3F10]
+                    #print "STACK", self.STACK
+                    
+                if self.MAPPER.Clock(self.exec_cycles):self.irq6502()
+                    
                 self.Scanline()
+                self.clockticks6502 += self.exec_cycles
+                self.exec_cycles -= self.ScanlineCycles
+
+                self.ScanlineCycles = 114
+                
+                
+            if self.clockticks6502 >= self.CpuClock:
+                self.clockticks6502 -= self.CpuClock
 
             #if time.time()-last >= 1:
             #    fps = self.Frames - fps
@@ -256,6 +287,10 @@ class cpu6502(object):
 
 
     def exec_opcode(self):
+        self.opcode = self.Read6502(self.PC)  #Fetch Next Operation
+        self.PC += 1
+        #self.clockticks6502 += self.Ticks[self.opcode]
+        self.exec_cycles += self.Ticks[self.opcode]
         instructions = self.instructions[self.opcode]
         if instructions == INS_BNE: self.bne6502()
         elif instructions == INS_CMP: self.cmp6502()
@@ -330,9 +365,7 @@ class cpu6502(object):
                 #if self.MAPPER.Clock(self.clockticks6502):self.irq6502()
                 #self.log("Scanline:",self.status()) ############################
 
-                if self.PPU.CurrentLine >0 :
-                    pass
-                    #print 'curli: ',self.status()
+
                         
                 self.PPU.RenderScanline()
 
@@ -344,7 +377,7 @@ class cpu6502(object):
                         
                 if self.PPU.CurrentLine >= 240:
                     #self.log("CurrentLine:",self.status()) ############################
-                    if self.PPU.CurrentLine == 240 :
+                    if self.PPU.CurrentLine == 239 :
                         pass
                         #if self.PPU.render:self.PPU.RenderFrame()
 
@@ -359,7 +392,7 @@ class cpu6502(object):
                         if self.PPU.reg.PPUCTRL & 0x80:
                             self.nmi6502()
 
-                if self.PPU.CurrentLine == 0:
+                if self.PPU.CurrentLine == 240:
                     self.Frames += 1
                 if self.PPU.CurrentLine in (0,131):
                     self.FrameFlag |= self.FrameSound
@@ -367,7 +400,7 @@ class cpu6502(object):
 
                 if self.PPU.CurrentLine == 258:
                     #self.PPU.Status = 0x0
-                    self.PPU.reg.PPUSTATUS_W(0)
+                    self.PPU.reg.PPUSTATUS_ZERO()
 
                 
                 if self.PPU.CurrentLine == 262:
@@ -380,13 +413,13 @@ class cpu6502(object):
                     #if self.Frames % 60 == 0:
                     self.FrameFlag |= self.FrameRender
                     
-                    self.PPU.reg.PPUSTATUS_W(0)
+                    self.PPU.reg.PPUSTATUS_ZERO()
                     
                 else:
                     self.PPU.CurrentLine_increment(1)
                 
 
-                self.clockticks6502 -= self.maxCycles1
+                
 
                 
 
@@ -404,12 +437,12 @@ class cpu6502(object):
      
         self.saveflags = self.p & 0x1
         #print "adc6502"
-        #_sum = self.a
-        _sum = (self.a + temp_value) & 0xFF
+        _sum = int(self.a)
+        _sum = (_sum + temp_value) & 0xFF
         _sum = (_sum + self.saveflags) & 0xFF
         
         self.p = (self.p | 0x40) if (_sum > 0x7F) or (_sum < -0x80) else (self.p & 0xBF)
-        #self.p = (self.p | 0x40) if (_sum > 0xFF) or (_sum < 0x0) else (self.p & 0xBF)
+        #self.p = (self.p | 0x40) if ((~(self.a ^ temp_value)) & (self.a ^ self.saveflags) & 0x80) else (self.p & 0xBF)
       
         _sum = self.a + (temp_value + self.saveflags)
         self.p = (self.p | 0x1) if (_sum > 0xFF)  else (self.p & 0xFE)
@@ -426,7 +459,7 @@ class cpu6502(object):
                 self.p = self.p | 0x1
 
         else:
-            self.clockticks6502 += 1
+            self.exec_cycles += 1
 
     
         self.p = (self.p & 0xFD) if (self.a) else (self.p | 0x2)
@@ -479,11 +512,9 @@ class cpu6502(object):
         self.savepc = self.Read6502_2(self.Read6502(self.PC))
         self.PC += 1
   
-        if (Ticks[self.opcode] == 5) and (self.savepc >>8 != (self.savepc + self.Y) >> 8):
+        if (self.Ticks[self.opcode] == 5):
             
-            self.clockticks6502 += 1
-                    
-            #self.clockticks6502 += 0 if self.savepc >>8 == (self.savepc + self.Y) >> 8 else 1
+            self.exec_cycles += 0 if self.savepc >>8 == (self.savepc + self.Y) >> 8 else 1
 
         self.savepc += self.Y
   
@@ -510,7 +541,7 @@ class cpu6502(object):
         self.PC += 1
         'savepc = savepc & 0xFF'
     def zp6502(self):
-        self.savepc = self.Read6502(self.PC) &0xFF
+        self.savepc = self.Read6502(self.PC) #&0xFF
         self.PC += 1
 
 
@@ -546,8 +577,8 @@ class cpu6502(object):
             
       
     def abs_ct(self,var):
-        if Ticks[self.opcode] == 4:
-            self.clockticks6502 += 0 if (self.savepc >> 8) == ((self.savepc + var) >> 8) else 1
+        if self.Ticks[self.opcode] == 4:
+            self.exec_cycles += 0 if (self.savepc >> 8) == ((self.savepc + var) >> 8) else 1
             #self.clockticks6502 += 0 if (self.savepc >> 8) == ((self.savepc + var) >> 8) else 1
 
 
@@ -593,7 +624,7 @@ class cpu6502(object):
       else:
         self.adrmode(self.opcode)
         self.PC += self.savepc
-        self.clockticks6502 += 1
+        self.exec_cycles += 1
 
 
 
@@ -601,7 +632,7 @@ class cpu6502(object):
       if (self.p & 0x1) :
         self.adrmode(self.opcode)
         self.PC +=  self.savepc
-        self.clockticks6502 += 1
+        self.exec_cycles += 1
       else:
         self.PC += 1
 
@@ -609,7 +640,7 @@ class cpu6502(object):
       if (self.p & 0x2) :
         self.adrmode(self.opcode)
         self.PC += self.savepc
-        self.clockticks6502 += 1
+        self.exec_cycles += 1
       else:
         self.PC += 1
 
@@ -627,7 +658,7 @@ class cpu6502(object):
       if (self.p & 0x80) :
         self.adrmode(self.opcode)
         self.PC +=  self.savepc
-        self.clockticks6502 +=  1
+        self.exec_cycles +=  1
       else:
         self.PC += 1
 
@@ -648,24 +679,13 @@ class cpu6502(object):
         self.PC += 1
 
 
-    def brk6502(self):
-      #print "brk code"
-      self.PC += 1
-      self.Write6502(0x100 + self.S, (self.PC >> 8) & 0xFF)
-      self.S = (self.S - 1) & 0xFF
-      self.Write6502(0x100 + self.S, (self.PC & 0xFF))
-      self.S = (self.S - 1) & 0xFF
-      self.Write6502(0x100 + self.S, self.p)
-      self.S = (self.S - 1) & 0xFF
-      self.p = self.p | 0x14
-      self.PC = self.Read6502_2(0xFFFE)# + (self.Read6502(0xFFFF) * 0x100)
 
 
     def bvc6502(self):
       if ((self.p & 0x40) == 0) :
         self.adrmode(self.opcode)
         self.PC += self.savepc
-        self.clockticks6502 +=  1
+        self.exec_cycles +=  1
       else:
         self.PC += 1
 
@@ -673,7 +693,7 @@ class cpu6502(object):
       if (self.p & 0x40) :
         self.adrmode(self.opcode)
         self.PC += self.savepc
-        self.clockticks6502 += 1
+        self.exec_cycles += 1
       else:
         self.PC += 1
 
@@ -763,11 +783,13 @@ class cpu6502(object):
 
     def jsr6502(self):
       self.PC += 1
-      self.Write6502(self.S + 0x100, (self.PC >> 8))
-      self.S = (self.S - 1) & 0xFF
-      self.Write6502(self.S + 0x100, (self.PC & 0xFF))
-      self.S = (self.S - 1) & 0xFF
-      self.PC = self.PC - 1
+      self.PUSH(self.PC >> 8)
+      #self.Write6502(self.S + 0x100, (self.PC >> 8))
+      #self.S = (self.S - 1) & 0xFF
+      self.PUSH(self.PC & 0xFF)
+      #self.Write6502(self.S + 0x100, (self.PC & 0xFF))
+      #self.S = (self.S - 1) & 0xFF
+      self.PC -= 1
       self.adrmode(self.opcode)
       self.PC = self.savepc
 
@@ -821,12 +843,14 @@ class cpu6502(object):
         self.common_set_p(self.a)
 
     def pha6502(self):
-        self.Write6502(0x100 + self.S, self.a)
-        self.S = (self.S - 1) & 0xFF
+        self.PUSH(self.a)
+        #self.Write6502(0x100 + self.S, self.a)
+        #self.S = (self.S - 1) & 0xFF
 
     def php6502(self):
-        self.Write6502(0x100 + self.S, self.p)
-        self.S = (self.S - 1) & 0xFF
+        self.PUSH(self.p | B_FLAG)
+        #self.Write6502(0x100 + self.S, self.p)
+        #self.S = (self.S - 1) & 0xFF
 
     def phx6502(self):
         self.Write6502(0x100 + self.S, self.X)
@@ -837,8 +861,9 @@ class cpu6502(object):
         self.S = (self.S - 1) & 0xFF
 
     def pla6502(self):
-        self.S = (self.S + 1) & 0xFF
-        self.a = self.Read6502(self.S + 0x100)
+        #self.S = (self.S + 1) & 0xFF
+        #self.a = self.Read6502(self.S + 0x100)
+        self.a = self.POP()
         self.common_set_p(self.a)
 
     def plx6502(self):
@@ -852,8 +877,9 @@ class cpu6502(object):
         self.common_set_p(self.Y)
 
     def plp6502(self):
-        self.S = (self.S + 1) & 0xFF
-        self.p = self.Read6502(self.S + 0x100) | 0x20
+        #self.S = (self.S + 1) & 0xFF
+        #self.p = self.Read6502(self.S + 0x100) | 0x20
+        self.p = self.POP() | R_FLAG #0x20
 
     def rol6502(self):
         self.saveflags = (self.p & 0x1)
@@ -881,7 +907,8 @@ class cpu6502(object):
         temp_value = self.Read6502(self.savepc)
       
         self.p = (self.p & 0xFE) | (temp_value & 0x1)
-        temp_value = (temp_value // 2) & 0xFF
+        #temp_value = (temp_value // 2) & 0xFF
+        temp_value >>= 1
 
         
         if (self.saveflags) :
@@ -902,19 +929,24 @@ class cpu6502(object):
         self.common_set_p(self.a)
 
     def rti6502(self):
-      self.S = (self.S + 1) & 0xFF
-      self.p = self.Read6502(self.S + 0x100) | 0x20
-      self.S = (self.S + 1) & 0xFF
-      self.PC = self.Read6502(self.S + 0x100)
-      self.S = (self.S + 1) & 0xFF
-      self.PC = self.PC + (self.Read6502(self.S + 0x100) * 0x100)
+        self.p = self.POP() | R_FLAG #0x20 
+        #self.S = (self.S + 1) & 0xFF
+        #self.p = self.Read6502(self.S + 0x100) | 0x20
+        self.PC = self.POP()
+        #self.S = (self.S + 1) & 0xFF
+        #self.PC = self.Read6502(self.S + 0x100)
+        self.PC |= self.POP() * 0x100
+        #self.S = (self.S + 1) & 0xFF
+        #self.PC = self.PC + (self.Read6502(self.S + 0x100) * 0x100)
 
     def rts6502(self):
-      self.S = (self.S + 1) & 0xFF
-      self.PC = self.Read6502(self.S + 0x100)
-      self.S = (self.S + 1) & 0xFF
-      self.PC = self.PC + (self.Read6502(self.S + 0x100) * 0x100)
-      self.PC += 1
+        self.PC = self.POP()
+        #self.S = (self.S + 1) & 0xFF
+        #self.PC = self.Read6502(self.S + 0x100)
+        self.PC |= self.POP() * 0x100
+        #self.S = (self.S + 1) & 0xFF
+        #self.PC = self.PC + (self.Read6502(self.S + 0x100) * 0x100)
+        self.PC += 1
 
     def sbc6502(self):
       self.adrmode(self.opcode)
@@ -927,7 +959,7 @@ class cpu6502(object):
       _sum = (_sum + (self.saveflags * 16)) & 0xFF
       
       
-      self.p = self.p | 0x40 if ((_sum > 0x7F) | (_sum <= -0x80)) else self.p & 0xBF
+      self.p = (self.p | 0x40) if ((_sum > 0x7F) | (_sum <= -0x80)) else (self.p & 0xBF)
 
       
       _sum = self.a + (temp_value + self.saveflags)
@@ -947,7 +979,7 @@ class cpu6502(object):
           self.p = self.p | 0x1
         
       else:
-        self.clockticks6502 = self.clockticks6502 + 1
+        self.exec_cycles +=  1
       
       #print "sbc6502"
       self.common_set_p(self.a)
@@ -991,8 +1023,21 @@ class cpu6502(object):
     def bra6502(self):
         self.adrmode(self.opcode)
         self.PC = self.PC + self.savepc
-        self.clockticks6502 = self.clockticks6502 + 1
+        self.exec_cycles += 1
 
+
+    def brk6502(self):
+      #print "brk code"
+      self.PC += 1
+      self.Write6502(0x100 + self.S, (self.PC >> 8) & 0xFF)
+      self.S = (self.S - 1) & 0xFF
+      self.Write6502(0x100 + self.S, (self.PC & 0xFF))
+      self.S = (self.S - 1) & 0xFF
+      self.Write6502(0x100 + self.S, self.p)
+      self.S = (self.S - 1) & 0xFF
+      self.p = self.p | 0x14
+      self.PC = self.Read6502_2(0xFFFE)# + (self.Read6502(0xFFFF) * 0x100)
+      
     
     def nmi6502(self):
         'TS: Changed PC>>8 to / not *'
@@ -1005,7 +1050,7 @@ class cpu6502(object):
         self.S = (self.S - 1) & 0xFF
         self.PC = self.Read6502(0xFFFA) + (self.Read6502(0xFFFB) << 8)
         #print "nmi=" , self.PC , "[$" , hex(self.PC) , "]"
-        self.clockticks6502 = self.clockticks6502 + 7
+        self.exec_cycles += 7
 
     def irq6502(self):
         #' Maskable interrupt
@@ -1018,8 +1063,13 @@ class cpu6502(object):
             self.S = (self.S - 1) & 0xFF
             self.p = self.p | 0x4
             self.PC = self.Read6502(0xFFFE) + (self.Read6502(0xFFFF) * 0x100)
-            self.clockticks6502 = self.clockticks6502 + 7
+            self.exec_cycles += 7
 
+    def reset6502(self):
+        self.a = 0; self.X = 0; self.Y = 0; self.p = 0x22
+        self.S = 0xFF
+        self.PC = self.Read6502_2(0xFFFC)
+        
 
 
 
@@ -1033,9 +1083,9 @@ class cpu6502(object):
         #if bank == 0 or bank >= 0x04: #in (0x00,0x04,0x05,0x06,0x07):  
             #return self.RAM.Read(address)
         if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
-            return self.PRGRAM[0, address & 0x7FF]
+            return self.RAM[0, address & 0x7FF]
         elif bank > 0x03:                       # Address >=0x8000 and Address <=0xFFFF
-            return self.PRGRAM[bank, address & 0x1FFF]
+            return self.RAM[bank, address & 0x1FFF]
         
         elif bank == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
             return self.PPU.Read(address)
@@ -1044,11 +1094,11 @@ class cpu6502(object):
             return self.Sound[address - 0x4000]
             #return self.APU.Sound[address - 0x4000]
         
-        elif address == 0x4016: #"Read JOY1"
-            return self.JOYPAD1.Read()
+        elif address in (0x4016,0x4017): #"Read PAD"
+            return self.JOYPAD.Read(address) | 0x40
 
-        elif address == 0x4017: #"Read JOY2 "
-            return self.JOYPAD2.Read()
+        #elif address == 0x4017: #"Read JOY2 "
+            #return self.JOYPAD2.Read()
             
         elif bank == 0x03: #Address == 0x6000 -0x7FFF:
             return self.MAPPER.ReadLow(address)
@@ -1066,14 +1116,15 @@ class cpu6502(object):
         if addr == 0x00:
             'Address >=0x0 and Address <=0x1FFF:'
             self.bank0[address & 0x7FF] = value
-            #self.PRGRAM[0][address & 0x7FF] = value
-            #RamWrite(address,value,self.PRGRAM)
+            #self.RAM[0][address & 0x7FF] = value
+            #RamWrite(address,value,self.RAM)
             
         elif addr == 0x01 or address == 0x4014:
             '$2000-$3FFF'
             #print "PPU Write" ,Address
             self.PPU.Write(address,value)
-
+            #if( address == 2000 and (value & 0x80) and (not (self.PPU.reg.reg[0] & 0x80)) and (self.PPU.reg.reg[2] & 0x80) ):
+                #self.nmi6502()
             
         elif addr == 0x02 and address != 0x4014:
             '$4000-$5FFF'
@@ -1089,7 +1140,7 @@ class cpu6502(object):
 
             elif NES.UsesSRAM:
                 if Mapper != 69:
-                    self.PRGRAM[3, address & 0x1FFF] = value
+                    self.RAM[3, address & 0x1FFF] = value
 
         elif addr >= 0x04: #Address >=0x8000 and Address <=0xFFFF:
             self.MapperWrite(address, value)
@@ -1118,14 +1169,14 @@ class cpu6502(object):
             #print 'DF: changed gameImage to bank0. This should work'
             pass
             self.PPU.Write(address,value)
-            #self.PPU.SpriteRAM = self.PRGRAM[0][value * 0x100:value * 0x100 + 0x100]#self.bank0[value * 0x100:value * 0x100 + 0x100]
+            #self.PPU.SpriteRAM = self.RAM[0][value * 0x100:value * 0x100 + 0x100]#self.bank0[value * 0x100:value * 0x100 + 0x100]
             #print self.PPU.SpriteRAM
-        elif addr == 0x16:
-            pass
-            self.JOYPAD1.Joypad_Count_ZERO()
-        elif addr == 0x17:
-            pass
-            self.JOYPAD2.Joypad_Count_ZERO()
+        elif addr in (0x16,0x17):
+            #print bin(value)
+            self.JOYPAD.Write(addr,value)
+        #elif addr == 0x17:
+        #    pass
+        #    self.JOYPAD2.Joypad_Count_ZERO(addr)
         else:
             pass
             #print addr
@@ -1140,69 +1191,12 @@ class cpu6502(object):
         #        self.APU.ExWrite(Address, value)
                     
         else:
-            self.MapperWriteFlag = 1
+            self.isMapperWrite = 1
             self.MapperWriteAddress = address
             self.MapperWriteData = value
     
 
 
-#@jit(forceobj=True)
-def exec6502new(cpu):
-        while cpu.CPURunning:
-
-            if cpu.FrameFlag or cpu.MapperWriteFlag:
-                    
-                    return
-                
-            cpu.opcode = cpu.Read6502(cpu.PC)  #Fetch Next Operation
-            cpu.PC += 1
-            cpu.clockticks6502 += cpu.Ticks[cpu.opcode]
-
-            instruction = cpu.instructions[cpu.opcode]
-            '''if instruction == INS_ADC:
-                #print self.opcode
-                cpu.adrmode(cpu.opcode)
-                ADC(cpu, None)
-            else:'''
-            cpu.instruction_dic.get(instruction)()
-
-            if cpu.clockticks6502 > cpu.maxCycles1:
-                cpu.Scanline()
-
-
-#@jit(forceobj=True)
-def Read6502(cpu, address):
-        bank = address >> 13
-        value = 0
-        if bank == 0x00:                        # Address >=0x0 and Address <=0x1FFF:
-
-            return cpu.bank0[address & 0x7FF]
-        
-        elif bank > 0x03:
-            return cpu.PRGRAM[bank, address & 0x1FFF]
-       
-        elif bank == 0x01: #Address == 0x2002 or Address == 0x2004 or Address == 0x2007:
-            if cpu.PPU.Running:
-                value = cpu.PPU.Read(address)
-            else:
-                return cpu.PRGRAM[1, address & 0x0007]
-
-        elif (address >=0x4000 and address <=0x4013) or address == 0x4015:
-            return cpu.APU.Sound[address - 0x4000]
-        
-        elif address == 0x4016:
-            #print "Read JOY1"
-            #return 0x40
-            value = cpu.JOYPAD1.Read()
-
-        elif address == 0x4017:
-            #print "Read JOY2 "
-            #pass
-            value = cpu.JOYPAD2.Read()
-        elif bank == 0x03: #Address == 0x6000 -0x7FFF:
-            return cpu.MAPPER.ReadLow(address)
-            
-        return value  
 
 
         '''self.instruction_dic ={
